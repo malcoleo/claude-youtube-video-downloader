@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build output
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Logs
+*.log
+npm-debug.log*
+
+# Misc
+.cache/
+temp/
+output/
+
+# Claude
+.claude/
+
+# NVM
+.nvm/
+
+# System folders
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100/
+.fseventsd/
+.TemporaryItems/
+.Ejectability/
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB/
+.AppleDesktop/
+Network Trash Folder/
+Temporary Items/
+.APFS Disk Store/
+
+# Project specific
+testdisk.log
