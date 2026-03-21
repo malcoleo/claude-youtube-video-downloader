@@ -10,7 +10,8 @@
     "build": "npm run build:client && npm run build:server",
     "build:client": "cd client && npm run build",
     "build:server": "echo 'Server build completed'",
-    "postinstall": "cd client && npm install"
+    "postinstall": "cd client && npm install",
+    "gstack-install": "curl -fsSL https://bun.sh/install | bash && export BUN_INSTALL=\"$HOME/.bun\" && export PATH=\"$BUN_INSTALL/bin:$PATH\" && (test -d ~/.claude/skills/gstack || git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack) && cd ~/.claude/skills/gstack && ./setup"
   },
   "keywords": [
     "youtube",

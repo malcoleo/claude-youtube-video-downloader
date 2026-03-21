@@ -62,3 +62,24 @@ The application consists of three main components:
 ## Contributing
 
 Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
+
+## Development Tools
+
+### gstack (AI Development Workflow)
+
+This project uses [gstack](https://github.com/garrytan/gstack) for AI-assisted development. To install gstack:
+
+```bash
+# Install bun (required by gstack)
+curl -fsSL https://bun.sh/install | bash
+
+# Clone gstack skills
+git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack
+
+# Run gstack setup
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+cd ~/.claude/skills/gstack && ./setup
+```
+
+After installation, you'll have access to gstack skills like `/browse`, `/qa`, `/ship`, `/review`, and more. See CLAUDE.md for the full list.
