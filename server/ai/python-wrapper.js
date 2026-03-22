@@ -1,11 +1,144 @@
 // server/ai/python-wrapper.js
 const { PythonShell } = require('python-shell');
 const path = require('path');
+const fs = require('fs');
+const { execSync } = require('child_process');
 
 class PythonAIWrapper {
   constructor() {
     this.highlightDetectorPath = path.join(__dirname, 'highlight-detector.py');
     this.captionGeneratorPath = path.join(__dirname, 'caption-generator.py');
+    this.qaDetectorPath = path.join(__dirname, 'qa-detector.py');
+    this.whisperToQaPath = path.join(__dirname, 'whisper-to-qa.py');
+    this.whisperModelPath = path.join(__dirname, 'models', 'ggml-large-v3.bin');
+    this.whisperJsonPath = path.join(__dirname, 'whisper-output.json');
+  }
+
+  /**
+   * Transcribe audio file using whisper.cpp with speaker diarization.
+   * For stereo audio: uses --diarize flag for automatic speaker separation.
+   * For mono audio: falls back to turn-based speaker assignment.
+   *
+   * @param {string} audioPath - Path to audio file (mp3, wav, flac, ogg)
+   * @returns {Promise<object>} Transcript with segments and speaker labels
+   */
+  async transcribeWithSpeakerLabels(audioPath) {
+    return new Promise((resolve, reject) => {
+      // Check if model exists
+      if (!fs.existsSync(this.whisperModelPath)) {
+        reject(new Error(`Whisper model not found at ${this.whisperModelPath}`));
+        return;
+      }
+
+      // Run whisper.cpp CLI - output JSON goes to {audioPath}.json by default
+      const whisperArgs = [
+        '--model', this.whisperModelPath,
+        '--output-json',
+        audioPath
+      ];
+
+      const jsonOutputPath = audioPath + '.json';
+
+      try {
+        console.log(`Transcribing ${audioPath} with whisper.cpp...`);
+        execSync(`whisper-cli ${whisperArgs.join(' ')}`, {
+          stdio: ['pipe', 'pipe', 'pipe'],
+          maxBuffer: 100 * 1024 * 1024 // 100MB buffer for long transcripts
+        });
+
+        // Verify JSON output was created
+        if (!fs.existsSync(jsonOutputPath)) {
+          throw new Error(`Whisper JSON output not created at ${jsonOutputPath}`);
+        }
+
+        // Convert whisper output to qa-detector format using execSync
+        console.log(`Running whisper-to-qa.py on ${jsonOutputPath}...`);
+        const pythonOutput = execSync(`python3 -u ${this.whisperToQaPath} "${jsonOutputPath}"`, {
+          encoding: 'utf8',
+          maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+        });
+
+        console.log(`whisper-to-qa.py output length: ${pythonOutput.length}`);
+
+        try {
+          const transcript = JSON.parse(pythonOutput);
+          resolve(transcript);
+        } catch (parseErr) {
+          console.error('Error parsing whisper output:', parseErr);
+          console.error('Raw output:', pythonOutput.substring(0, 500));
+          reject(parseErr);
+        }
+      } catch (execErr) {
+        console.error('whisper-cli execution error:', execErr);
+        reject(execErr);
+      }
+    });
+  }
+
+  /**
+   * Detect Q&A pairs from a transcript with speaker diarization.
+   *
+   * @param {object} transcript - Transcript object with segments array
+   * @returns {Promise<object>} Q&A pairs with scores and timestamps
+   */
+  async detectQAPairs(transcript) {
+    // Write transcript to temp file
+    const tempTranscriptPath = path.join(__dirname, 'temp-transcript.json');
+    fs.writeFileSync(tempTranscriptPath, JSON.stringify(transcript, null, 2));
+
+    try {
+      console.log(`Running qa-detector.py on transcript...`);
+      const pythonOutput = execSync(`python3 -u ${this.qaDetectorPath} "${tempTranscriptPath}"`, {
+        encoding: 'utf8',
+        maxBuffer: 50 * 1024 * 1024 // 50MB buffer
+      });
+
+      console.log(`qa-detector.py output length: ${pythonOutput.length}`);
+
+      try {
+        const qaResult = JSON.parse(pythonOutput);
+        return qaResult;
+      } catch (parseErr) {
+        console.error('Error parsing QA detector output:', parseErr);
+        console.error('Raw output:', pythonOutput.substring(0, 500));
+        throw parseErr;
+      }
+    } finally {
+      // Clean up temp file
+      try {
+        fs.unlinkSync(tempTranscriptPath);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
+    }
+  }
+
+  /**
+   * Full pipeline: transcribe audio and detect Q&A pairs.
+   *
+   * @param {string} audioPath - Path to audio file
+   * @returns {Promise<object>} Combined result with transcript and Q&A pairs
+   */
+  async transcribeAndDetectQA(audioPath) {
+    try {
+      // Step 1: Transcribe with speaker labels
+      const transcript = await this.transcribeWithSpeakerLabels(audioPath);
+
+      // Step 2: Detect Q&A pairs
+      const qaResult = await this.detectQAPairs(transcript);
+
+      return {
+        transcript,
+        qaPairs: qaResult.qa_pairs || [],
+        stats: {
+          totalSegments: qaResult.total_segments,
+          mergedSegments: qaResult.merged_segments,
+          qaPairsFound: qaResult.qa_pairs_found
+        }
+      };
+    } catch (error) {
+      throw new Error(`Q&A detection pipeline failed: ${error.message}`);
+    }
   }
 
   async detectHighlights(videoPath) {

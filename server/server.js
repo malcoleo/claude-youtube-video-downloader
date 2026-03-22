@@ -12,6 +12,10 @@ const highlightDetectionRoutes = require('./api/highlight-detection');
 const socialSharingRoutes = require('./api/social-sharing');
 const analyticsRoutes = require('./api/analytics');
 
+// Note: highlightDetectionRoutes exports both a router and podcastRouter
+const highlightRouter = highlightDetectionRoutes.router || highlightDetectionRoutes;
+const podcastRouter = highlightDetectionRoutes.podcastRouter;
+
 // Initialize app
 const app = express();
 const PORT = 5001; // Hardcoded port to avoid environment issues
@@ -65,7 +69,8 @@ app.get('/download/:filename', (req, res) => {
 // API Routes
 app.use('/api/youtube', youtubeProcessingRoutes);
 app.use('/api/video', videoProcessorRoutes);
-app.use('/api/highlights', highlightDetectionRoutes);
+app.use('/api/highlights', highlightRouter);
+app.use('/api/podcast', podcastRouter); // Separate router for podcast-specific routes
 app.use('/api/social', socialSharingRoutes);
 app.use('/api/analytics', analyticsRoutes);
 

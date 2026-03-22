@@ -1,4 +1,8 @@
-// server/ai/highlight-detector.py
+#!/usr/bin/env python3
+"""
+Highlight Detector for Video Clips
+Extracts audio, motion, and scene change highlights from video files.
+"""
 import json
 import sys
 import subprocess
