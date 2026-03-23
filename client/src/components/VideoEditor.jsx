@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactPlayer from 'react-player';
 import { Slider, Button, Box, Typography, Grid, Card, CardContent, Tabs, Tab, Chip } from '@mui/material';
+import { VolumeUp, Film, Reel, Star, Play } from '@phosphor-icons/react';
 import axios from 'axios';
 import SocialSharing from './SocialSharing';
 import './VideoEditor.css';
@@ -141,18 +142,18 @@ const VideoEditor = ({ videoData, onDownload, selectedPlatform }) => {
 
   // Get priority color
   const getPriorityColor = (priority) => {
-    if (priority >= 80) return '#4caf50'; // Green
-    if (priority >= 60) return '#ff9800'; // Orange
-    return '#f44336'; // Red
+    if (priority >= 80) return 'var(--success)'; // Green
+    if (priority >= 60) return 'var(--warning)'; // Orange
+    return 'var(--error)'; // Red
   };
 
   // Get reason icon
   const getReasonIcon = (reason) => {
     switch (reason) {
-      case 'audio': return '🔊';
-      case 'motion': return '🎬';
-      case 'scene': return '🎞️';
-      default: return '⭐';
+      case 'audio': return <VolumeUp weight="fill" size={16} />;
+      case 'motion': return <Film weight="fill" size={16} />;
+      case 'scene': return <Reel weight="fill" size={16} />;
+      default: return <Star weight="fill" size={16} />;
     }
   };
 
@@ -394,8 +395,9 @@ const VideoEditor = ({ videoData, onDownload, selectedPlatform }) => {
                             e.stopPropagation();
                             handleSelectSegment(segment);
                           }}
+                          startIcon={<Play weight="fill" size={16} />}
                         >
-                          ▶ Preview Clip
+                          Preview Clip
                         </Button>
                       </CardContent>
                     </Card>

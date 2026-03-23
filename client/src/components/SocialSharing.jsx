@@ -1,6 +1,7 @@
 // client/src/components/SocialSharing.jsx
 import React, { useState, useEffect } from 'react';
 import { Button, Checkbox, FormControlLabel, FormGroup, TextField, Typography, Box, Chip, Alert } from '@mui/material';
+import { CheckCircle, XCircle } from '@phosphor-icons/react';
 import axios from 'axios';
 
 const SocialSharing = ({ videoUrl, onClose }) => {
@@ -164,9 +165,9 @@ const SocialSharing = ({ videoUrl, onClose }) => {
                       {platform.name}
                     </Typography>
                     {validationResult.isValid ? (
-                      <Chip label="✓ Valid" size="small" color="success" style={{ marginLeft: 10 }} />
+                      <Chip icon={<CheckCircle weight="fill" />} label="Valid" size="small" color="success" style={{ marginLeft: 10 }} />
                     ) : (
-                      <Chip label="✗ Invalid" size="small" color="error" style={{ marginLeft: 10 }} />
+                      <Chip icon={<XCircle weight="fill" />} label="Invalid" size="small" color="error" style={{ marginLeft: 10 }} />
                     )}
                   </div>
                 }

@@ -2,6 +2,26 @@
 import React, { useState, useRef } from 'react';
 import ReactPlayer from 'react-player';
 import axios from 'axios';
+import {
+  VideoCamera,
+  UploadSimple,
+  DownloadSimple,
+  Clock,
+  Target,
+  Check,
+  Eye,
+  Timer,
+  DeviceMobile,
+  Camera,
+  Play,
+  Video,
+  Square,
+  Monitor,
+  Hourglass,
+  Sparkles,
+  FileText,
+  Scissors
+} from '@phosphor-icons/react';
 import './CreateShort.css';
 
 // Unified page component - handles both YouTube URL and file upload
@@ -372,7 +392,7 @@ const CreateShortPage = () => {
               className={`mode-btn ${inputMode === 'youtube' ? 'active' : ''}`}
               onClick={() => setInputMode('youtube')}
             >
-              📺 YouTube URL
+              <VideoCamera weight="fill" size={20} style={{ marginRight: 8 }} /> YouTube URL
             </button>
             <button
               className={`mode-btn ${inputMode === 'upload' ? 'active' : ''}`}
@@ -381,7 +401,7 @@ const CreateShortPage = () => {
                 handleSelectFileClick();
               }}
             >
-              📁 Upload File
+              <UploadSimple weight="fill" size={20} style={{ marginRight: 8 }} /> Upload File
             </button>
           </div>
         </div>
@@ -436,14 +456,16 @@ const CreateShortPage = () => {
                   disabled={downloadingQuality !== null || processingForPlatform !== null}
                   className="quality-btn"
                 >
-                  {downloadingQuality === '4k' ? '⏳ Downloading 4K...' : '📥 4K Ultra HD'}
+                  {downloadingQuality === '4k' ? <Hourglass size={20} weight="fill" style={{ marginRight: 8 }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8 }} />}
+                  {downloadingQuality === '4k' ? 'Downloading 4K...' : '4K Ultra HD'}
                 </button>
                 <button
                   onClick={() => handleDownloadOriginal('hd')}
                   disabled={downloadingQuality !== null || processingForPlatform !== null}
                   className="quality-btn"
                 >
-                  {downloadingQuality === 'hd' ? '⏳ Downloading HD...' : '📥 HD (1080p/720p)'}
+                  {downloadingQuality === 'hd' ? <Hourglass size={20} weight="fill" style={{ marginRight: 8 }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8 }} />}
+                  {downloadingQuality === 'hd' ? 'Downloading HD...' : 'HD (1080p/720p)'}
                 </button>
               </div>
               {downloadingQuality && (
@@ -474,28 +496,32 @@ const CreateShortPage = () => {
                 disabled={processingForPlatform !== null}
                 className="process-btn full-video-btn"
               >
-                {processingForPlatform === videoInfo.duration ? '⏳ Processing...' : `📥 Download Full Video (${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')})`}
+                {processingForPlatform === videoInfo.duration ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} />}
+                {processingForPlatform === videoInfo.duration ? 'Processing...' : `Download Full Video (${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')})`}
               </button>
               <button
                 onClick={() => handleDownloadForPlatform(60)}
                 disabled={processingForPlatform !== null}
                 className="process-btn"
               >
-                {processingForPlatform === 60 ? '⏳ Processing...' : 'Download 60s Clip'}
+                {processingForPlatform === 60 ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
+                {processingForPlatform === 60 ? 'Processing...' : 'Download 60s Clip'}
               </button>
               <button
                 onClick={() => handleDownloadForPlatform(30)}
                 disabled={processingForPlatform !== null}
                 className="process-btn"
               >
-                {processingForPlatform === 30 ? '⏳ Processing...' : 'Download 30s Clip'}
+                {processingForPlatform === 30 ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
+                {processingForPlatform === 30 ? 'Processing...' : 'Download 30s Clip'}
               </button>
               <button
                 onClick={() => handleDownloadForPlatform(15)}
                 disabled={processingForPlatform !== null}
                 className="process-btn"
               >
-                {processingForPlatform === 15 ? '⏳ Processing...' : 'Download 15s Clip'}
+                {processingForPlatform === 15 ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
+                {processingForPlatform === 15 ? 'Processing...' : 'Download 15s Clip'}
               </button>
             </div>
 
@@ -510,7 +536,8 @@ const CreateShortPage = () => {
                 disabled={isProcessing || qaDetected}
                 className={`qa-detect-btn ${qaDetected ? 'detected' : ''}`}
               >
-                {isProcessing ? '⏳ Detecting Q&A...' : qaDetected ? '✓ Q&A Detected' : '🎯 Detect Q&A Segments'}
+                {isProcessing ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : qaDetected ? <Check size={20} weight="bold" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : <Target size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} />}
+                {isProcessing ? 'Detecting Q&A...' : qaDetected ? 'Q&A Detected' : 'Detect Q&A Segments'}
               </button>
               {isProcessing && (
                 <p className="download-status">{processingStage}</p>
@@ -580,13 +607,30 @@ const CreateShortPage = () => {
       {/* Processing Status */}
       {isProcessing && processingStage && (
         <div className="alert alert-warning">
-          <strong>⏳ {processingStage}</strong>
+          <strong><Hourglass size={16} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> {processingStage}</strong>
           <div className="progress-bar"><div className="progress-fill"></div></div>
           <small>This may take several minutes for large files. Please don't close this page.</small>
         </div>
       )}
 
       {/* Q&A Segments Grid */}
+      {qaDetected && qaPairs.length === 0 && (
+        <div className="empty-state">
+          <div className="empty-state-icon">
+            <FileText size={64} weight="light" />
+          </div>
+          <h3>No Q&A Segments Found</h3>
+          <p className="empty-state-hint">
+            We analyzed your video but didn't detect any clear question-and-answer patterns.
+            This can happen with music, monologues, or conversations without distinct Q&A structure.
+          </p>
+          <button className="btn-outline" onClick={handleDetectQaClick}>
+            <Sparkles size={16} weight="fill" style={{ marginRight: 8 }} />
+            Try Detecting Again
+          </button>
+        </div>
+      )}
+
       {qaPairs.length > 0 && (
         <>
           <div className="segments-header">
@@ -634,9 +678,10 @@ const CreateShortPage = () => {
 
                 <div className="qa-card-footer">
                   <span className="qa-time">
-                    ⏱️ {formatTime(qa.duration)} | {formatTime(qa.questionStart)} - {formatTime(qa.answerEnd)}
+                    <Timer size={14} weight="fill" style={{ marginRight: 4, verticalAlign: 'middle' }} />
+                    {formatTime(qa.duration)} | {formatTime(qa.questionStart)} - {formatTime(qa.answerEnd)}
                   </span>
-                  <span className="qa-preview-label">👁️ Hover to preview</span>
+                  <span className="qa-preview-label"><Eye size={14} weight="fill" style={{ marginRight: 4, verticalAlign: 'middle' }} /> Hover to preview</span>
                 </div>
 
                 {qa.reasons && qa.reasons.length > 0 && (
@@ -650,6 +695,14 @@ const CreateShortPage = () => {
             ))}
           </div>
 
+          {/* No Selection Empty State */}
+          {selectedSegments.size === 0 && (
+            <div className="empty-state-no-selection">
+              <h4><Scissors size={16} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> No Segments Selected</h4>
+              <p>Select Q&A cards above to create your clips, then click export</p>
+            </div>
+          )}
+
           {/* Export Section */}
           <div className="export-section">
             <div className="export-controls">
@@ -661,12 +714,12 @@ const CreateShortPage = () => {
                   onChange={(e) => setSelectedFormat(e.target.value)}
                   disabled={isProcessing}
                 >
-                  <option value="tiktok">📱 TikTok / Reels / Shorts (9:16 Vertical)</option>
-                  <option value="reels">📸 Instagram Reels (9:16 Vertical)</option>
-                  <option value="shorts">▶️ YouTube Shorts (9:16 Vertical)</option>
-                  <option value="square">⬜ Instagram Square (1:1)</option>
-                  <option value="landscape">🖥️ Landscape / YouTube (16:9)</option>
-                  <option value="original">📹 Original Format</option>
+                  <option value="tiktok"><DeviceMobile size={18} weight="fill" style={{ marginRight: 8 }} /> TikTok / Reels / Shorts (9:16 Vertical)</option>
+                  <option value="reels"><Camera size={18} weight="fill" style={{ marginRight: 8 }} /> Instagram Reels (9:16 Vertical)</option>
+                  <option value="shorts"><Play size={18} weight="fill" style={{ marginRight: 8 }} /> YouTube Shorts (9:16 Vertical)</option>
+                  <option value="square"><Square size={18} weight="fill" style={{ marginRight: 8 }} /> Instagram Square (1:1)</option>
+                  <option value="landscape"><Monitor size={18} weight="fill" style={{ marginRight: 8 }} /> Landscape / YouTube (16:9)</option>
+                  <option value="original"><Video size={18} weight="fill" style={{ marginRight: 8 }} /> Original Format</option>
                 </select>
               </div>
               <button
@@ -674,7 +727,8 @@ const CreateShortPage = () => {
                 onClick={handleExportSelected}
                 disabled={selectedSegments.size === 0 || isProcessing}
               >
-                {isProcessing ? '⏳ Exporting...' : `Export Selected (${selectedSegments.size})`}
+                {isProcessing ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
+                {isProcessing ? 'Exporting...' : `Export Selected (${selectedSegments.size})`}
               </button>
             </div>
             <p className="export-hint">
