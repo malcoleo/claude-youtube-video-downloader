@@ -10,6 +10,120 @@ const fs = require('fs');
 const videoProcessor = new VideoProcessor();
 const pythonAI = new PythonAIWrapper();
 
+/**
+ * Generate Hormozi-style subtitles for a video clip.
+ * @param {string} clipVideoPath - Path to the video clip
+ * @param {number} startTime - Start time of the clip in the original video
+ * @param {string} outputAssPath - Path to output ASS subtitle file
+ * @returns {Promise<string|null>} - Path to ASS file or null on failure
+ */
+async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath) {
+  try {
+    // Extract audio from clip for transcription
+    const tempAudioPath = clipVideoPath.replace('.mp4', '-audio.wav');
+
+    console.log('Extracting audio for subtitle transcription...');
+    await new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      const ffmpegCmd = `ffmpeg -i "${clipVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${tempAudioPath}" -y`;
+      exec(ffmpegCmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error('Audio extraction for subtitles:', err);
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+
+    // Transcribe with word-level timestamps
+    console.log('Transcribing with word-level timestamps...');
+    const transcript = await pythonAI.transcribeWithSpeakerLabels(tempAudioPath, true);
+
+    // Check if we have word-level data
+    if (!transcript.words || transcript.words.length === 0) {
+      console.warn('No word-level timestamps available - skipping subtitles');
+      return null;
+    }
+
+    // Adjust timestamps to account for clip start offset
+    const adjustedWords = transcript.words.map(word => ({
+      ...word,
+      start: word.start + startTime,
+      end: word.end + startTime
+    }));
+
+    // Write adjusted words to temp JSON for caption-generator.py
+    const tempWordsPath = clipVideoPath.replace('.mp4', '-words.json');
+    fs.writeFileSync(tempWordsPath, JSON.stringify(adjustedWords, null, 2));
+
+    // Generate ASS subtitles using caption-generator.py
+    console.log('Generating Hormozi-style subtitles...');
+    const { exec } = require('child_process');
+    const captionGeneratorPath = require('path').join(__dirname, '../ai/caption-generator.py');
+
+    await new Promise((resolve, reject) => {
+      const cmd = `python3 "${captionGeneratorPath}" "${tempWordsPath}" "${outputAssPath}"`;
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error('Caption generator error:', err);
+          reject(err);
+        } else {
+          console.log('Subtitle generation complete');
+          resolve();
+        }
+      });
+    });
+
+    // Clean up temp files
+    try {
+      fs.unlinkSync(tempAudioPath);
+      fs.unlinkSync(tempWordsPath);
+    } catch (e) {
+      // Ignore cleanup errors
+    }
+
+    return outputAssPath;
+  } catch (error) {
+    console.error('Subtitle generation failed:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Add end frame CTA to a video clip.
+ * @param {string} clipVideoPath - Path to the video clip
+ * @param {string} outputVideoPath - Path to output video with CTA
+ * @param {string} ctaText - CTA text to display
+ * @returns {Promise<boolean>} - True if successful
+ */
+async function addEndFrameToClip(clipVideoPath, outputVideoPath, ctaText = "Watch full video") {
+  try {
+    const { exec } = require('child_process');
+    const endFrameCtaPath = require('path').join(__dirname, '../ai/end-frame-cta.py');
+
+    console.log(`Adding end frame CTA: "${ctaText}"...`);
+
+    await new Promise((resolve, reject) => {
+      const cmd = `python3 "${endFrameCtaPath}" "${clipVideoPath}" "${outputVideoPath}" "${ctaText}"`;
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error('End frame CTA error:', err);
+          reject(err);
+        } else {
+          console.log('End frame CTA added');
+          resolve();
+        }
+      });
+    });
+
+    return true;
+  } catch (error) {
+    console.error('End frame CTA failed:', error.message);
+    return false;
+  }
+}
+
 // Configure multer for temporary file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -554,9 +668,9 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
 
 // Endpoint to export Q&A clips as ZIP or individual files
 router.post('/video/export-clips', async (req, res) => {
-  const { videoPath, segments, format = 'original' } = req.body;
+  const { videoPath, segments, format = 'original', addSubtitles = false, addEndFrame = false } = req.body;
 
-  console.log('Export request received:', { videoPath, segments: segments?.length, format });
+  console.log('Export request received:', { videoPath, segments: segments?.length, format, addSubtitles, addEndFrame });
 
   if (!videoPath || !segments || !Array.isArray(segments) || segments.length === 0) {
     return res.status(400).json({ error: 'Missing required parameters: videoPath, segments' });
@@ -657,17 +771,41 @@ router.post('/video/export-clips', async (req, res) => {
       const duration = segment.end - segment.start;
       const safeIndex = (i + 1).toString().padStart(2, '0');
       const safeName = `qa-${safeIndex}-${selectedFormat.suffix}`;
-      const outputPath = path.join(exportDir, `${safeName}-${timestamp}.mp4`);
+      const baseOutputPath = path.join(exportDir, `${safeName}-${timestamp}.mp4`);
 
+      // Generate subtitles if requested
+      let assPath = null;
+      if (addSubtitles) {
+        assPath = path.join(exportDir, `${safeName}-${timestamp}.ass`);
+        console.log(`Generating subtitles for clip ${i + 1}/${segments.length}...`);
+        await generateSubtitlesForClip(actualVideoPath, segment.start, assPath);
+      }
+
+      // Export clip (with or without subtitles burned in)
       await new Promise((resolve, reject) => {
         const { exec } = require('child_process');
         let ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -c:v libx264 -c:a aac -y`;
 
+        // Build video filter chain
+        const filters = [];
+
         // Apply format-specific filters (or smart crop if detected)
         if (cropFilter) {
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -vf "${cropFilter}" -c:v libx264 -c:a aac -y "${outputPath}"`;
+          filters.push(cropFilter);
+        }
+
+        // Add subtitle filter if ASS file exists
+        if (assPath && fs.existsSync(assPath)) {
+          const assPathAbs = path.resolve(assPath);
+          filters.push(`ass='${assPathAbs}'`);
+        }
+
+        // Apply combined filters if any
+        if (filters.length > 0) {
+          const filterString = filters.join(',');
+          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -vf "${filterString}" -c:v libx264 -c:a aac -y "${baseOutputPath}"`;
         } else {
-          ffmpegCmd += ` "${outputPath}"`;
+          ffmpegCmd += ` "${baseOutputPath}"`;
         }
 
         console.log('Exporting clip:', ffmpegCmd.substring(0, 200) + '...');
@@ -676,11 +814,45 @@ router.post('/video/export-clips', async (req, res) => {
             console.error('Clip export error:', err);
             reject(err);
           } else {
-            console.log(`Clip ${i + 1}/${segments.length} exported`);
-            clipPaths.push({ path: outputPath, name: `${safeName}-${timestamp}.mp4` });
+            console.log(`Clip ${i + 1}/${segments.length} exported${assPath ? ' with subtitles' : ''}`);
             resolve();
           }
         });
+      });
+
+      // Add end frame CTA if requested
+      let finalOutputPath = baseOutputPath;
+      if (addEndFrame) {
+        finalOutputPath = baseOutputPath.replace('.mp4', '-with-cta.mp4');
+        console.log(`Adding end frame CTA to clip ${i + 1}/${segments.length}...`);
+        const ctaAdded = await addEndFrameToClip(baseOutputPath, finalOutputPath);
+        if (ctaAdded) {
+          // Remove original clip without CTA
+          try {
+            fs.unlinkSync(baseOutputPath);
+          } catch (e) {
+            // Ignore cleanup errors
+          }
+        } else {
+          // CTA failed, use original clip
+          finalOutputPath = baseOutputPath;
+        }
+      }
+
+      // Clean up ASS file after export (we keep the video)
+      if (assPath && fs.existsSync(assPath)) {
+        try {
+          fs.unlinkSync(assPath);
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+
+      clipPaths.push({
+        path: finalOutputPath,
+        name: path.basename(finalOutputPath),
+        hasSubtitles: !!assPath,
+        hasEndFrame: addEndFrame
       });
     }
 

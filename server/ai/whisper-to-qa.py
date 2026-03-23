@@ -15,8 +15,17 @@ import json
 import sys
 
 
-def convert_whisper_output(whisper_json_path):
-    """Convert whisper.cpp JSON to qa-detector.py input format."""
+def convert_whisper_output(whisper_json_path, include_words=False):
+    """
+    Convert whisper.cpp JSON to qa-detector.py input format.
+
+    Args:
+        whisper_json_path: Path to whisper.cpp JSON output
+        include_words: If True, extract word-level timestamps for subtitle engine
+
+    Returns:
+        Transcript object with optional words array for subtitle rendering
+    """
 
     with open(whisper_json_path, 'r') as f:
         data = json.load(f)
@@ -24,6 +33,8 @@ def convert_whisper_output(whisper_json_path):
     transcription = data.get('transcription', [])
 
     segments = []
+    all_words = [] if include_words else None
+
     for i, segment in enumerate(transcription):
         offsets = segment.get('offsets', {})
         text = segment.get('text', '').strip()
@@ -39,6 +50,25 @@ def convert_whisper_output(whisper_json_path):
             'text': text
         })
 
+        # Extract word-level timestamps for subtitle engine
+        if include_words:
+            words_data = segment.get('words', [])
+            for word_info in words_data:
+                word_text = word_info.get('word', '').strip()
+                if not word_text:  # Skip empty words
+                    continue
+
+                word_offsets = word_info.get('offsets', {})
+                word_start = word_offsets.get('from', 0) / 1000.0
+                word_end = word_offsets.get('to', 0) / 1000.0
+
+                all_words.append({
+                    'word': word_text,
+                    'start': word_start,
+                    'end': word_end,
+                    'confidence': word_info.get('probability', 1.0)
+                })
+
     output = {
         'segments': segments,
         'metadata': {
@@ -47,6 +77,10 @@ def convert_whisper_output(whisper_json_path):
             'model': data.get('params', {}).get('model', 'unknown')
         }
     }
+
+    # Include word-level timestamps for subtitle engine
+    if include_words and all_words:
+        output['words'] = all_words
 
     return output
 
@@ -57,9 +91,10 @@ def main():
         sys.exit(1)
 
     input_file = sys.argv[1]
+    include_words = '--words' in sys.argv or '-w' in sys.argv
 
     try:
-        output = convert_whisper_output(input_file)
+        output = convert_whisper_output(input_file, include_words)
         print(json.dumps(output, indent=2))
     except FileNotFoundError:
         print(json.dumps({'error': f'File not found: {input_file}'}))

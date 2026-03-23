@@ -21,9 +21,10 @@ class PythonAIWrapper {
    * For mono audio: falls back to turn-based speaker assignment.
    *
    * @param {string} audioPath - Path to audio file (mp3, wav, flac, ogg)
-   * @returns {Promise<object>} Transcript with segments and speaker labels
+   * @param {boolean} includeWordTimestamps - If true, includes word-level timestamps for subtitle engine
+   * @returns {Promise<object>} Transcript with segments and speaker labels (and optional words array)
    */
-  async transcribeWithSpeakerLabels(audioPath) {
+  async transcribeWithSpeakerLabels(audioPath, includeWordTimestamps = false) {
     return new Promise((resolve, reject) => {
       // Check if model exists
       if (!fs.existsSync(this.whisperModelPath)) {
@@ -35,8 +36,14 @@ class PythonAIWrapper {
       const whisperArgs = [
         '--model', this.whisperModelPath,
         '--output-json',
-        audioPath
       ];
+
+      // Add word-level timestamps flag for subtitle engine
+      if (includeWordTimestamps) {
+        whisperArgs.push('--word-timestamps');
+      }
+
+      whisperArgs.push(audioPath);
 
       const jsonOutputPath = audioPath + '.json';
 
@@ -53,8 +60,9 @@ class PythonAIWrapper {
         }
 
         // Convert whisper output to qa-detector format using execSync
+        const wordsFlag = includeWordTimestamps ? '--words' : '';
         console.log(`Running whisper-to-qa.py on ${jsonOutputPath}...`);
-        const pythonOutput = execSync(`python3 -u ${this.whisperToQaPath} "${jsonOutputPath}"`, {
+        const pythonOutput = execSync(`python3 -u ${this.whisperToQaPath} ${wordsFlag} "${jsonOutputPath}"`, {
           encoding: 'utf8',
           maxBuffer: 50 * 1024 * 1024 // 50MB buffer
         });
@@ -140,6 +148,17 @@ class PythonAIWrapper {
     } catch (error) {
       throw new Error(`Q&A detection pipeline failed: ${error.message}`);
     }
+  }
+
+  /**
+   * Transcribe audio file and return word-level timestamps for subtitle engine.
+   * Wrapper that explicitly enables word timestamps.
+   *
+   * @param {string} audioPath - Path to audio file
+   * @returns {Promise<object>} Transcript with words array containing word-level timestamps
+   */
+  async transcribeWithWordTimestamps(audioPath) {
+    return this.transcribeWithSpeakerLabels(audioPath, true);
   }
 
   async detectHighlights(videoPath) {
