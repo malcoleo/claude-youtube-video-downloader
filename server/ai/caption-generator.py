@@ -23,11 +23,29 @@ import json
 import os
 import subprocess
 import tempfile
+import importlib.util
 
-# Import sibling modules
-from keyword_highlighter import highlight_keywords, highlight_keywords_rulebased
-from emoji_suggester import suggest_emojis
-from subtitle_renderer import generate_ass_subtitle
+# Import sibling modules (handle hyphenated filenames)
+def load_module_from_file(module_name, file_path):
+    """Load a Python module from a file path."""
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+# Load modules with hyphenated filenames
+keyword_highlighter = load_module_from_file(
+    'keyword_highlighter',
+    os.path.join(os.path.dirname(__file__), 'keyword-highlighter.py')
+)
+emoji_suggester = load_module_from_file(
+    'emoji_suggester',
+    os.path.join(os.path.dirname(__file__), 'emoji-suggester.py')
+)
+subtitle_renderer = load_module_from_file(
+    'subtitle_renderer',
+    os.path.join(os.path.dirname(__file__), 'subtitle-renderer.py')
+)
 
 
 def load_whisper_output(whisper_json_path):
@@ -119,18 +137,18 @@ def generate_hormozi_captions(
     # Step 1: Highlight keywords using POS tagging
     print(f"Highlighting keywords...", file=sys.stderr)
     try:
-        highlighted_words = highlight_keywords(words_with_timestamps)
+        highlighted_words = keyword_highlighter.highlight_keywords(words_with_timestamps)
     except Exception as e:
         print(f"spaCy highlighting failed, using rule-based: {e}", file=sys.stderr)
-        highlighted_words = highlight_keywords_rulebased(words_with_timestamps)
+        highlighted_words = keyword_highlighter.highlight_keywords_rulebased(words_with_timestamps)
 
     # Step 2: Suggest emoji placements
     print(f"Suggesting emojis...", file=sys.stderr)
-    emoji_placements = suggest_emojis(highlighted_words, max_emojis=max_emojis)
+    emoji_placements = emoji_suggester.suggest_emojis(highlighted_words, max_emojis=max_emojis)
 
     # Step 3: Generate ASS subtitle file
     print(f"Generating ASS subtitles...", file=sys.stderr)
-    ass_result = generate_ass_subtitle(
+    ass_result = subtitle_renderer.generate_ass_subtitle(
         highlighted_words,
         emoji_placements,
         output_ass_path

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 Convert whisper.cpp JSON output to QA Detector input format.
+When --words flag is passed, approximates word-level timestamps by
+distributing segment time proportionally across words.
 
 Usage:
     whisper-cli --model model.bin --output-json audio.mp3
@@ -13,6 +15,44 @@ Or combined:
 
 import json
 import sys
+import re
+
+
+def approximate_word_timestamps(text, segment_start, segment_end):
+    """
+    Approximate word-level timestamps by distributing segment time
+    proportionally across words.
+
+    Args:
+        text: Segment text
+        segment_start: Segment start time in seconds
+        segment_end: Segment end time in seconds
+
+    Returns:
+        List of {word, start, end} dicts
+    """
+    # Extract words with their positions
+    words = re.findall(r'\b\w+\b', text)
+
+    if not words:
+        return []
+
+    segment_duration = segment_end - segment_start
+    # Assume roughly equal time per word, with small gaps
+    time_per_word = segment_duration / len(words)
+
+    word_timestamps = []
+    for i, word in enumerate(words):
+        word_start = segment_start + (i * time_per_word)
+        word_end = word_start + (time_per_word * 0.9)  # 90% duration, 10% gap
+
+        word_timestamps.append({
+            'word': word,
+            'start': round(word_start, 2),
+            'end': round(word_end, 2)
+        })
+
+    return word_timestamps
 
 
 def convert_whisper_output(whisper_json_path, include_words=False):
@@ -50,24 +90,32 @@ def convert_whisper_output(whisper_json_path, include_words=False):
             'text': text
         })
 
-        # Extract word-level timestamps for subtitle engine
+        # Extract or approximate word-level timestamps for subtitle engine
         if include_words:
+            # First try to get actual word timestamps from JSON
             words_data = segment.get('words', [])
-            for word_info in words_data:
-                word_text = word_info.get('word', '').strip()
-                if not word_text:  # Skip empty words
-                    continue
 
-                word_offsets = word_info.get('offsets', {})
-                word_start = word_offsets.get('from', 0) / 1000.0
-                word_end = word_offsets.get('to', 0) / 1000.0
+            if words_data:
+                # Use actual word timestamps if available
+                for word_info in words_data:
+                    word_text = word_info.get('word', '').strip()
+                    if not word_text:  # Skip empty words
+                        continue
 
-                all_words.append({
-                    'word': word_text,
-                    'start': word_start,
-                    'end': word_end,
-                    'confidence': word_info.get('probability', 1.0)
-                })
+                    word_offsets = word_info.get('offsets', {})
+                    word_start = word_offsets.get('from', 0) / 1000.0
+                    word_end = word_offsets.get('to', 0) / 1000.0
+
+                    all_words.append({
+                        'word': word_text,
+                        'start': word_start,
+                        'end': word_end,
+                        'confidence': word_info.get('probability', 1.0)
+                    })
+            else:
+                # Fall back to approximation
+                approx_words = approximate_word_timestamps(text, start, end)
+                all_words.extend(approx_words)
 
     output = {
         'segments': segments,
