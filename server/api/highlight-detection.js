@@ -562,11 +562,25 @@ router.post('/video/export-clips', async (req, res) => {
     return res.status(400).json({ error: 'Missing required parameters: videoPath, segments' });
   }
 
-  // Format configurations
+  // Format configurations with smart crop options
+  // For 9:16 vertical: crop to focus on content, then scale
+  // x and y can be adjusted to shift crop window toward speaker
   const formatConfig = {
-    'tiktok': { aspect: '9:16', filter: 'crop=ih*(9/16):ih,scale=1080:1920', suffix: 'tiktok' },
-    'reels': { aspect: '9:16', filter: 'crop=ih*(9/16):ih,scale=1080:1920', suffix: 'reels' },
-    'shorts': { aspect: '9:16', filter: 'crop=ih*(9/16):ih,scale=1080:1920', suffix: 'shorts' },
+    'tiktok': {
+      aspect: '9:16',
+      filter: 'crop=w=min(ih\\,iw*(9/16)):h=ih:x=(iw-ow)/2:y=(ih-oh)/2,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
+      suffix: 'tiktok'
+    },
+    'reels': {
+      aspect: '9:16',
+      filter: 'crop=w=min(ih\\,iw*(9/16)):h=ih:x=(iw-ow)/2:y=(ih-oh)/2,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
+      suffix: 'reels'
+    },
+    'shorts': {
+      aspect: '9:16',
+      filter: 'crop=w=min(ih\\,iw*(9/16)):h=ih:x=(iw-ow)/2:y=(ih-oh)/2,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920',
+      suffix: 'shorts'
+    },
     'square': { aspect: '1:1', filter: 'crop=ih:ih,scale=1080:1080', suffix: 'square' },
     'landscape': { aspect: '16:9', filter: 'crop=iw:iw*(9/16),scale=1920:1080', suffix: 'landscape' },
     'original': { aspect: 'original', filter: null, suffix: 'original' }
@@ -611,6 +625,30 @@ router.post('/video/export-clips', async (req, res) => {
       });
     }
 
+    // For 9:16 vertical formats, detect face position for smart cropping
+    let cropFilter = selectedFormat.filter;
+    if (['tiktok', 'reels', 'shorts'].includes(format) && segments.length > 0) {
+      try {
+        console.log('Detecting face position for smart crop...');
+        const firstSegment = segments[0];
+        const cropParams = await pythonAI.detectFaceCrop(
+          actualVideoPath,
+          firstSegment.start,
+          Math.min(5, firstSegment.end - firstSegment.start)
+        );
+
+        if (cropParams.ffmpeg_crop_filter) {
+          console.log(`Using smart crop: ${cropParams.speaker_position} speaker detected`);
+          cropFilter = cropParams.ffmpeg_crop_filter;
+        } else if (cropParams.crop_type === 'center') {
+          console.log('No faces detected - using center crop');
+        }
+      } catch (faceDetectErr) {
+        console.warn('Face detection failed, falling back to center crop:', faceDetectErr.message);
+        // Fall back to default center crop
+      }
+    }
+
     const clipPaths = [];
 
     // Process each segment
@@ -625,9 +663,9 @@ router.post('/video/export-clips', async (req, res) => {
         const { exec } = require('child_process');
         let ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -c:v libx264 -c:a aac -y`;
 
-        // Apply format-specific filters
-        if (selectedFormat.filter) {
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -vf "${selectedFormat.filter}" -c:v libx264 -c:a aac -y "${outputPath}"`;
+        // Apply format-specific filters (or smart crop if detected)
+        if (cropFilter) {
+          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -vf "${cropFilter}" -c:v libx264 -c:a aac -y "${outputPath}"`;
         } else {
           ffmpegCmd += ` "${outputPath}"`;
         }

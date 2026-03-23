@@ -10,6 +10,7 @@ class PythonAIWrapper {
     this.captionGeneratorPath = path.join(__dirname, 'caption-generator.py');
     this.qaDetectorPath = path.join(__dirname, 'qa-detector.py');
     this.whisperToQaPath = path.join(__dirname, 'whisper-to-qa.py');
+    this.faceCropDetectorPath = path.join(__dirname, 'face-crop-detector.py');
     this.whisperModelPath = path.join(__dirname, 'models', 'ggml-large-v3.bin');
     this.whisperJsonPath = path.join(__dirname, 'whisper-output.json');
   }
@@ -189,6 +190,41 @@ class PythonAIWrapper {
           resolve(analysis);
         } catch (parseErr) {
           console.error('Error parsing caption generator output:', parseErr);
+          reject(parseErr);
+        }
+      });
+    });
+  }
+
+  /**
+   * Detect optimal crop region for vertical video based on face position.
+   * Analyzes first few seconds of video to find speaker location.
+   *
+   * @param {string} videoPath - Path to video file
+   * @param {number} startTime - Start time in seconds (default: 0)
+   * @param {number} duration - Duration to analyze in seconds (default: 5)
+   * @returns {Promise<object>} Crop parameters with ffmpeg filter
+   */
+  async detectFaceCrop(videoPath, startTime = 0, duration = 5) {
+    return new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      const cmd = `python3 -u "${this.faceCropDetectorPath}" "${videoPath}" ${startTime} ${duration}`;
+
+      exec(cmd, {
+        encoding: 'utf8',
+        maxBuffer: 50 * 1024 * 1024
+      }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('Face crop detector error:', err);
+          reject(err);
+          return;
+        }
+
+        try {
+          const cropParams = JSON.parse(stdout.trim());
+          resolve(cropParams);
+        } catch (parseErr) {
+          console.error('Error parsing face crop output:', parseErr);
           reject(parseErr);
         }
       });
