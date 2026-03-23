@@ -12,7 +12,48 @@
   margin-bottom: 20px;
 }
 
-/* Tab Selector */
+/* Unified Input Header */
+.unified-input-header {
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.unified-input-header h2 {
+  color: #333;
+  margin-bottom: 15px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.input-mode-selector {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.mode-btn {
+  padding: 12px 24px;
+  border: 2px solid #ddd;
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.mode-btn:hover {
+  border-color: #007bff;
+  background: #f8f9fa;
+}
+
+.mode-btn.active {
+  border-color: #007bff;
+  background: #007bff;
+  color: white;
+}
+
+/* Old Tab Selector - keeping for backward compatibility, will be removed */
 .tab-selector {
   display: flex;
   gap: 10px;
@@ -105,6 +146,11 @@
 
 .or-divider span {
   padding: 0 10px;
+}
+
+/* Video Preview Section - unified container for both YouTube and uploaded previews */
+.video-preview-section {
+  margin: 20px 0;
 }
 
 .upload-container {

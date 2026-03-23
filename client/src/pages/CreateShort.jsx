@@ -4,25 +4,59 @@ import ReactPlayer from 'react-player';
 import axios from 'axios';
 import './CreateShort.css';
 
-// Podcast Q&A Section Component (defined first to avoid forward reference issues)
-const PodcastQaSection = () => {
+// Unified page component - handles both YouTube URL and file upload
+const CreateShortPage = () => {
+  // Input state
+  const [inputMode, setInputMode] = useState('youtube'); // 'youtube' or 'upload'
+  const [youtubeUrl, setYoutubeUrl] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
+
+  // Video info and preview state
+  const [videoInfo, setVideoInfo] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [videoPathForExport, setVideoPathForExport] = useState(null);
+
+  // Processing state
+  const [isLoading, setIsLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
+  const [downloadingQuality, setDownloadingQuality] = useState(null);
+  const [processingForPlatform, setProcessingForPlatform] = useState(null);
+
+  // Q&A segments (for uploaded podcasts)
   const [qaPairs, setQaPairs] = useState([]);
   const [selectedSegments, setSelectedSegments] = useState(new Set());
   const [hoveredSegment, setHoveredSegment] = useState(null);
-  const [error, setError] = useState('');
   const [stats, setStats] = useState(null);
+
+  // Export state
   const [selectedFormat, setSelectedFormat] = useState('tiktok');
-  const [videoPathForExport, setVideoPathForExport] = useState(null);
+  const [selectedPlatform, setSelectedPlatform] = useState('tiktok');
+  const [platforms, setPlatforms] = useState([]);
+
+  // Error state
+  const [error, setError] = useState('');
+
+  // Refs
   const playerRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  // Fetch available platforms on component mount
+  React.useEffect(() => {
+    const fetchPlatforms = async () => {
+      try {
+        const response = await axios.get('/api/youtube/platforms');
+        setPlatforms(response.data.platforms);
+      } catch (err) {
+        console.error('Error fetching platforms:', err);
+      }
+    };
+    fetchPlatforms();
+  }, []);
+
+  // ============ FILE UPLOAD HANDLERS ============
   const handleSelectFileClick = () => {
-    // Programmatically trigger the file input
     if (fileInputRef.current) {
       fileInputRef.current.click();
     }
@@ -39,11 +73,12 @@ const PodcastQaSection = () => {
     }
 
     setUploadedFile(file);
+    setInputMode('upload');
     setError('');
     setIsProcessing(true);
     setProcessingStage('Uploading and processing...');
 
-    // Create local preview URL for immediate feedback (will be replaced with server preview if available)
+    // Create local preview URL for immediate feedback
     const localPreviewUrl = URL.createObjectURL(file);
     setVideoUrl(localPreviewUrl);
 
@@ -62,12 +97,10 @@ const PodcastQaSection = () => {
       if (response.data.success) {
         setQaPairs(response.data.qaPairs || []);
         setStats(response.data.stats);
-        // Use server-generated preview if available, otherwise keep local preview
         if (response.data.previewUrl) {
           setVideoUrl(response.data.previewUrl);
           setPreviewUrl(response.data.previewUrl);
         }
-        // Store video path for export
         if (response.data.videoPathForExport) {
           setVideoPathForExport(response.data.videoPathForExport);
         }
@@ -84,6 +117,96 @@ const PodcastQaSection = () => {
     }
   };
 
+  // ============ YOUTUBE HANDLERS ============
+  const handleGetYoutubeInfo = async () => {
+    if (!youtubeUrl) {
+      setError('Please enter a YouTube URL');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await axios.post('/api/youtube/info', { youtubeUrl });
+      setVideoInfo(response.data);
+      setVideoUrl(response.data.url); // Use downloaded video URL for preview
+      setInputMode('youtube');
+      setIsLoading(false);
+    } catch (err) {
+      console.error('Error getting YouTube info:', err);
+      setError('Failed to get YouTube video info. Please check the URL and try again.');
+      setIsLoading(false);
+    }
+  };
+
+  const handleDownloadOriginal = async (quality) => {
+    if (!youtubeUrl) {
+      setError('Please enter a YouTube URL');
+      return;
+    }
+
+    setDownloadingQuality(quality);
+    setError('');
+
+    try {
+      const infoResponse = await axios.post('/api/youtube/info', { youtubeUrl });
+      const response = await axios.post('/api/youtube/download', {
+        youtubeUrl,
+        start: 0,
+        end: infoResponse.data.duration,
+        platform: null,
+        quality: quality
+      });
+
+      if (response.data.success) {
+        handleDownload(response.data.videoPath);
+      } else {
+        setError('Download failed - server returned error');
+      }
+      setDownloadingQuality(null);
+    } catch (err) {
+      console.error('Error downloading video:', err);
+      setError('Failed to download video: ' + err.message);
+      setDownloadingQuality(null);
+    }
+  };
+
+  const handleDownloadForPlatform = async (duration) => {
+    if (!youtubeUrl) {
+      setError('Please enter a YouTube URL');
+      return;
+    }
+
+    setProcessingForPlatform(duration);
+    setError('');
+
+    try {
+      const response = await axios.post('/api/youtube/download', {
+        youtubeUrl,
+        start: 0,
+        end: duration,
+        platform: selectedPlatform
+      });
+
+      if (response.data.success) {
+        handleDownload(response.data.videoPath);
+      }
+      setProcessingForPlatform(null);
+    } catch (err) {
+      console.error('Error processing video:', err);
+      setError('Failed to process video. Please try again.');
+      setProcessingForPlatform(null);
+    }
+  };
+
+  const handleDownload = (videoUrl) => {
+    const filename = videoUrl.split('/').pop();
+    const downloadUrl = `http://localhost:5001/download/${filename}?t=${Date.now()}`;
+    window.location.href = downloadUrl;
+  };
+
+  // ============ SEGMENT HANDLERS (for uploaded podcasts) ============
   const toggleSegmentSelection = (segmentId) => {
     const newSelected = new Set(selectedSegments);
     if (newSelected.has(segmentId)) {
@@ -106,9 +229,7 @@ const PodcastQaSection = () => {
   const handleSegmentHover = (segment) => {
     setHoveredSegment(segment);
     if (playerRef.current && segment) {
-      // Seek to question start time
       playerRef.current.seekTo(segment.questionStart, 'seconds');
-      // Force the video to play from the correct position
       const internalPlayer = playerRef.current.getInternalPlayer();
       if (internalPlayer && internalPlayer.currentTime) {
         internalPlayer.currentTime = segment.questionStart;
@@ -148,7 +269,6 @@ const PodcastQaSection = () => {
       });
 
       if (response.data.success) {
-        // Trigger download
         window.location.href = `http://localhost:5001${response.data.downloadUrl}`;
         setProcessingStage('');
         setIsProcessing(false);
@@ -169,6 +289,7 @@ const PodcastQaSection = () => {
     }
   };
 
+  // ============ UTILITY FUNCTIONS ============
   const getPriorityColor = (priority) => {
     if (priority === 'high') return '#4caf50';
     if (priority === 'medium') return '#ff9800';
@@ -186,227 +307,6 @@ const PodcastQaSection = () => {
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
-
-  return (
-    <div className="podcast-section">
-      {!uploadedFile ? (
-        <div className="upload-card">
-          <h3>Upload Your Podcast</h3>
-          <p>Upload a podcast video or audio file. Our AI will detect Q&A segments and create shareable clips.</p>
-          <input
-            key={uploadedFile ? 'with-file' : 'no-file'}
-            accept="video/*,audio/*"
-            style={{ display: 'none' }}
-            id="podcast-upload"
-            ref={fileInputRef}
-            type="file"
-            onChange={handleFileUpload}
-          />
-          <button className="upload-btn-primary" onClick={handleSelectFileClick}>
-            Select File
-          </button>
-          <p className="file-hint">Supported: MP4, MOV, MKV, MP3, WAV (Max 2GB, Max 2 hours)</p>
-          <div className="processing-info">
-            <strong>Processing time:</strong> ~10-15 minutes for a 1-hour podcast
-          </div>
-        </div>
-      ) : (
-        <div className="podcast-review-section">
-          {isProcessing && (
-            <div className="alert alert-warning">
-              <strong>⏳ {processingStage}</strong>
-              <div className="progress-bar"><div className="progress-fill"></div></div>
-              <small>This may take several minutes for large files. Please don't close this page.</small>
-            </div>
-          )}
-
-          {error && <div className="alert alert-error">{error}</div>}
-
-          {!isProcessing && qaPairs.length === 0 && !error && (
-            <div className="alert alert-warning">
-              <strong>No Q&A segments detected.</strong> This might be a monologue or single-speaker content.
-            </div>
-          )}
-
-          {qaPairs.length > 0 && (
-            <>
-              <div className="video-preview-card">
-                <div className="preview-header-row">
-                  <h4>Preview: {uploadedFile.name}</h4>
-                  {stats && (
-                    <div className="stats-inline">
-                      <span className="stat-chip">Segments: {stats.totalSegments}</span>
-                      <span className="stat-chip primary">Q&A: {stats.qaPairsFound}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="video-player-wrapper">
-                  <ReactPlayer
-                    ref={playerRef}
-                    url={videoUrl}
-                    width="100%"
-                    height="auto"
-                    controls={true}
-                    playing={hoveredSegment !== null}
-                    muted={false}
-                    volume={0.5}
-                    playbackRate={1}
-                    onEnded={handleSegmentHoverOut}
-                  />
-                  {/* Timeline markers overlay */}
-                  {qaPairs.length > 0 && (
-                    <div className="timeline-markers">
-                      <div className="timeline-bar">
-                        {qaPairs.map((qa, idx) => {
-                          const position = (qa.questionStart / (qa.answerEnd)) * 100;
-                          const duration = ((qa.answerEnd - qa.questionStart) / qa.answerEnd) * 100;
-                          return (
-                            <div
-                              key={qa.id}
-                              className={`timeline-marker ${selectedSegments.has(qa.id) ? 'selected' : ''}`}
-                              style={{ left: `${position}%`, width: `${duration}%` }}
-                              title={`Q&A ${idx + 1}: ${formatTime(qa.questionStart)} - ${formatTime(qa.answerEnd)}`}
-                              onClick={() => {
-                                playerRef.current?.seekTo(qa.questionStart, 'seconds');
-                              }}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="content-preview-area">
-                  <h5>Detected Q&A Segments</h5>
-                  <p className="content-hint">Hover over any card below to preview that segment with audio</p>
-                </div>
-              </div>
-
-              <div className="segments-header">
-                <h4>Detected Q&A Segments ({qaPairs.length})</h4>
-                <div>
-                  <button onClick={selectAll} className="btn-outline">Select All</button>
-                  <button onClick={deselectAll} className="btn-outline">Deselect All</button>
-                </div>
-              </div>
-
-              <div className="qa-grid">
-                {qaPairs.map((qa) => (
-                  <div
-                    key={qa.id}
-                    className={`qa-card ${selectedSegments.has(qa.id) ? 'selected' : ''}`}
-                    onMouseEnter={() => handleSegmentHover(qa)}
-                    onMouseLeave={handleSegmentHoverOut}
-                  >
-                    <div className="qa-card-header">
-                      <div className="qa-select">
-                        <input
-                          type="checkbox"
-                          checked={selectedSegments.has(qa.id)}
-                          onChange={() => toggleSegmentSelection(qa.id)}
-                        />
-                        <span className="score-chip" style={{ backgroundColor: getScoreColor(qa.score) }}>
-                          Score: {qa.score}
-                        </span>
-                      </div>
-                      <span className="priority-chip" style={{ backgroundColor: getPriorityColor(qa.priority) }}>
-                        {qa.priority.toUpperCase()}
-                      </span>
-                    </div>
-
-                    <div className="qa-content">
-                      <div className="qa-item">
-                        <strong>Q ({qa.labels.question}):</strong>
-                        <p className="qa-text">{qa.questionText}</p>
-                      </div>
-                      <div className="qa-item">
-                        <strong>A ({qa.labels.answer}):</strong>
-                        <p className="qa-text">{qa.answerText}</p>
-                      </div>
-                    </div>
-
-                    <div className="qa-card-footer">
-                      <span className="qa-time">
-                        ⏱️ {formatTime(qa.duration)} | {formatTime(qa.questionStart)} - {formatTime(qa.answerEnd)}
-                      </span>
-                      <span className="qa-preview-label">👁️ Hover to preview</span>
-                    </div>
-
-                    {qa.reasons && qa.reasons.length > 0 && (
-                      <div className="qa-reasons">
-                        {qa.reasons.slice(0, 3).map((reason, idx) => (
-                          <span key={idx} className="reason-tag">{reason.replace(/_/g, ' ')}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="export-section">
-                <div className="export-controls">
-                  <div className="format-selector">
-                    <label htmlFor="export-format">Output Format:</label>
-                    <select
-                      id="export-format"
-                      value={selectedFormat}
-                      onChange={(e) => setSelectedFormat(e.target.value)}
-                      disabled={isProcessing}
-                    >
-                      <option value="tiktok">📱 TikTok / Reels / Shorts (9:16 Vertical)</option>
-                      <option value="reels">📸 Instagram Reels (9:16 Vertical)</option>
-                      <option value="shorts">▶️ YouTube Shorts (9:16 Vertical)</option>
-                      <option value="square">⬜ Instagram Square (1:1)</option>
-                      <option value="landscape">🖥️ Landscape / YouTube (16:9)</option>
-                      <option value="original">📹 Original Format</option>
-                    </select>
-                  </div>
-                  <button
-                    className="export-btn-primary"
-                    onClick={handleExportSelected}
-                    disabled={selectedSegments.size === 0 || isProcessing}
-                  >
-                    {isProcessing ? '⏳ Exporting...' : `Export Selected (${selectedSegments.size})`}
-                  </button>
-                </div>
-                <p className="export-hint">
-                  Multiple clips will be bundled into a ZIP file. Files are named: qa-01-{selectedFormat}.mp4, qa-02-{selectedFormat}.mp4, etc.
-                </p>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Main Create Short Page Component
-const CreateShortPage = () => {
-  const [activeTab, setActiveTab] = useState('youtube'); // 'youtube' or 'podcast'
-  const [youtubeUrl, setYoutubeUrl] = useState('');
-  const [videoInfo, setVideoInfo] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [selectedPlatform, setSelectedPlatform] = useState('tiktok');
-  const [platforms, setPlatforms] = useState([]);
-  const [downloadingQuality, setDownloadingQuality] = useState(null);
-  const [processingForPlatform, setProcessingForPlatform] = useState(null);
-
-  // Fetch available platforms on component mount
-  React.useEffect(() => {
-    const fetchPlatforms = async () => {
-      try {
-        const response = await axios.get('/api/youtube/platforms');
-        setPlatforms(response.data.platforms);
-      } catch (err) {
-        console.error('Error fetching platforms:', err);
-        setError('Failed to load platform options');
-      }
-    };
-
-    fetchPlatforms();
-  }, []);
 
   const handleGetYoutubeInfo = async () => {
     if (!youtubeUrl) {
@@ -516,44 +416,64 @@ const CreateShortPage = () => {
     <div className="create-short-page">
       <h1>Video Clip Generator</h1>
 
-      {/* Tab Selector */}
-      <div className="tab-selector">
-        <button
-          className={`tab-btn ${activeTab === 'youtube' ? 'active' : ''}`}
-          onClick={() => setActiveTab('youtube')}
-        >
-          📺 YouTube Video Downloader
-        </button>
-        <button
-          className={`tab-btn ${activeTab === 'podcast' ? 'active' : ''}`}
-          onClick={() => setActiveTab('podcast')}
-        >
-          🎙️ Podcast Q&A Clip Generator
-        </button>
-      </div>
-
-      {activeTab === 'youtube' ? (
-        // YouTube Downloader Section
-        <div className="input-section">
-        <div className="url-input-container">
-          <input
-            type="text"
-            placeholder="Paste YouTube URL here..."
-            value={youtubeUrl}
-            onChange={(e) => setYoutubeUrl(e.target.value)}
-            disabled={isLoading || processingForPlatform !== null || downloadingQuality !== null}
-          />
-          <button
-            onClick={handleGetYoutubeInfo}
-            disabled={isLoading || processingForPlatform !== null || downloadingQuality !== null}
-          >
-            {isLoading ? 'Loading...' : 'Get Video Info'}
-          </button>
+      {/* Unified Input Section */}
+      <div className="input-section">
+        <div className="unified-input-header">
+          <h2>Choose Your Source</h2>
+          <div className="input-mode-selector">
+            <button
+              className={`mode-btn ${inputMode === 'youtube' ? 'active' : ''}`}
+              onClick={() => setInputMode('youtube')}
+            >
+              📺 YouTube URL
+            </button>
+            <button
+              className={`mode-btn ${inputMode === 'upload' ? 'active' : ''}`}
+              onClick={() => {
+                setInputMode('upload');
+                handleSelectFileClick();
+              }}
+            >
+              📁 Upload File
+            </button>
+          </div>
         </div>
 
-        {error && <div className="error-message">{error}</div>}
+        {/* YouTube URL Input */}
+        {inputMode === 'youtube' && (
+          <div className="url-input-container">
+            <input
+              type="text"
+              placeholder="Paste YouTube URL here..."
+              value={youtubeUrl}
+              onChange={(e) => setYoutubeUrl(e.target.value)}
+              disabled={isLoading || processingForPlatform !== null || downloadingQuality !== null || isProcessing}
+            />
+            <button
+              onClick={handleGetYoutubeInfo}
+              disabled={isLoading || processingForPlatform !== null || downloadingQuality !== null || isProcessing}
+            >
+              {isLoading ? 'Loading...' : 'Get Video Info'}
+            </button>
+          </div>
+        )}
 
-        {videoInfo && (
+        {/* Hidden file input for upload mode */}
+        <input
+          accept="video/*,audio/*"
+          style={{ display: 'none' }}
+          id="podcast-upload"
+          ref={fileInputRef}
+          type="file"
+          onChange={handleFileUpload}
+        />
+
+        {error && <div className="error-message">{error}</div>}
+      </div>
+
+      {/* Video Preview and Actions */}
+      {videoInfo && (
+        <div className="video-preview-section">
           <div className="video-preview">
             <h3>{videoInfo.title}</h3>
             {videoInfo.thumbnail && (
@@ -632,22 +552,183 @@ const CreateShortPage = () => {
               </button>
             </div>
           </div>
-        )}
-
-        <div className="instructions">
-          <h3>How to use:</h3>
-          <ol>
-            <li>Enter a YouTube URL and click "Get Video Info"</li>
-            <li>Click "4K Ultra HD" or "HD" to download the original video</li>
-            <li>Or click "Download Full Video" to get the entire video converted for selected platform</li>
-            <li>Or select a duration (60s, 30s, 15s) to download a short clip</li>
-          </ol>
         </div>
-        </div>
-      ) : (
-        // Podcast Q&A Section
-        <PodcastQaSection />
       )}
+
+      {/* Uploaded File Preview and Q&A Processing */}
+      {uploadedFile && qaPairs.length > 0 && (
+        <div className="video-preview-section">
+          <div className="video-preview-card">
+            <div className="preview-header-row">
+              <h4>Preview: {uploadedFile.name}</h4>
+              {stats && (
+                <div className="stats-inline">
+                  <span className="stat-chip">Segments: {stats.totalSegments}</span>
+                  <span className="stat-chip primary">Q&A: {stats.qaPairsFound}</span>
+                </div>
+              )}
+            </div>
+            <div className="video-player-wrapper">
+              <ReactPlayer
+                ref={playerRef}
+                url={videoUrl}
+                width="100%"
+                height="auto"
+                controls={true}
+                playing={hoveredSegment !== null}
+                muted={false}
+                volume={0.5}
+                playbackRate={1}
+                onEnded={handleSegmentHoverOut}
+              />
+              {/* Timeline markers overlay */}
+              {qaPairs.length > 0 && (
+                <div className="timeline-markers">
+                  <div className="timeline-bar">
+                    {qaPairs.map((qa, idx) => {
+                      const position = (qa.questionStart / (qa.answerEnd)) * 100;
+                      const duration = ((qa.answerEnd - qa.questionStart) / qa.answerEnd) * 100;
+                      return (
+                        <div
+                          key={qa.id}
+                          className={`timeline-marker ${selectedSegments.has(qa.id) ? 'selected' : ''}`}
+                          style={{ left: `${position}%`, width: `${duration}%` }}
+                          title={`Q&A ${idx + 1}: ${formatTime(qa.questionStart)} - ${formatTime(qa.answerEnd)}`}
+                          onClick={() => {
+                            playerRef.current?.seekTo(qa.questionStart, 'seconds');
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="content-preview-area">
+              <h5>Detected Q&A Segments</h5>
+              <p className="content-hint">Hover over any card below to preview that segment with audio</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Processing Status */}
+      {isProcessing && processingStage && (
+        <div className="alert alert-warning">
+          <strong>⏳ {processingStage}</strong>
+          <div className="progress-bar"><div className="progress-fill"></div></div>
+          <small>This may take several minutes for large files. Please don't close this page.</small>
+        </div>
+      )}
+
+      {/* Q&A Segments Grid */}
+      {qaPairs.length > 0 && (
+        <>
+          <div className="segments-header">
+            <h4>Detected Q&A Segments ({qaPairs.length})</h4>
+            <div>
+              <button onClick={selectAll} className="btn-outline">Select All</button>
+              <button onClick={deselectAll} className="btn-outline">Deselect All</button>
+            </div>
+          </div>
+
+          <div className="qa-grid">
+            {qaPairs.map((qa) => (
+              <div
+                key={qa.id}
+                className={`qa-card ${selectedSegments.has(qa.id) ? 'selected' : ''}`}
+                onMouseEnter={() => handleSegmentHover(qa)}
+                onMouseLeave={handleSegmentHoverOut}
+              >
+                <div className="qa-card-header">
+                  <div className="qa-select">
+                    <input
+                      type="checkbox"
+                      checked={selectedSegments.has(qa.id)}
+                      onChange={() => toggleSegmentSelection(qa.id)}
+                    />
+                    <span className="score-chip" style={{ backgroundColor: getScoreColor(qa.score) }}>
+                      Score: {qa.score}
+                    </span>
+                  </div>
+                  <span className="priority-chip" style={{ backgroundColor: getPriorityColor(qa.priority) }}>
+                    {qa.priority.toUpperCase()}
+                  </span>
+                </div>
+
+                <div className="qa-content">
+                  <div className="qa-item">
+                    <strong>Q ({qa.labels.question}):</strong>
+                    <p className="qa-text">{qa.questionText}</p>
+                  </div>
+                  <div className="qa-item">
+                    <strong>A ({qa.labels.answer}):</strong>
+                    <p className="qa-text">{qa.answerText}</p>
+                  </div>
+                </div>
+
+                <div className="qa-card-footer">
+                  <span className="qa-time">
+                    ⏱️ {formatTime(qa.duration)} | {formatTime(qa.questionStart)} - {formatTime(qa.answerEnd)}
+                  </span>
+                  <span className="qa-preview-label">👁️ Hover to preview</span>
+                </div>
+
+                {qa.reasons && qa.reasons.length > 0 && (
+                  <div className="qa-reasons">
+                    {qa.reasons.slice(0, 3).map((reason, idx) => (
+                      <span key={idx} className="reason-tag">{reason.replace(/_/g, ' ')}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Export Section */}
+          <div className="export-section">
+            <div className="export-controls">
+              <div className="format-selector">
+                <label htmlFor="export-format">Output Format:</label>
+                <select
+                  id="export-format"
+                  value={selectedFormat}
+                  onChange={(e) => setSelectedFormat(e.target.value)}
+                  disabled={isProcessing}
+                >
+                  <option value="tiktok">📱 TikTok / Reels / Shorts (9:16 Vertical)</option>
+                  <option value="reels">📸 Instagram Reels (9:16 Vertical)</option>
+                  <option value="shorts">▶️ YouTube Shorts (9:16 Vertical)</option>
+                  <option value="square">⬜ Instagram Square (1:1)</option>
+                  <option value="landscape">🖥️ Landscape / YouTube (16:9)</option>
+                  <option value="original">📹 Original Format</option>
+                </select>
+              </div>
+              <button
+                className="export-btn-primary"
+                onClick={handleExportSelected}
+                disabled={selectedSegments.size === 0 || isProcessing}
+              >
+                {isProcessing ? '⏳ Exporting...' : `Export Selected (${selectedSegments.size})`}
+              </button>
+            </div>
+            <p className="export-hint">
+              Multiple clips will be bundled into a ZIP file. Files are named: qa-01-{selectedFormat}.mp4, qa-02-{selectedFormat}.mp4, etc.
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* Instructions */}
+      <div className="instructions">
+        <h3>How to use:</h3>
+        <ol>
+          <li><strong>YouTube URL:</strong> Paste a YouTube URL and click "Get Video Info" to download</li>
+          <li><strong>Upload File:</strong> Upload your own video/audio file (MP4, MOV, MKV, MP3, WAV)</li>
+          <li><strong>For YouTube:</strong> Download in 4K/HD or convert for specific platforms</li>
+          <li><strong>For Uploads:</strong> AI detects Q&A segments, select clips and export in your desired format</li>
+        </ol>
+      </div>
     </div>
   );
 };
