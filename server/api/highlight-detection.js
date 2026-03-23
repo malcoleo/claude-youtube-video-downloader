@@ -524,8 +524,8 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
   } finally {
     // Move uploaded file to persistent temp location for export (instead of deleting)
     // File will be cleaned up after 1 hour via temp cleanup
+    const persistentPath = videoPath.replace('/temp/', '/temp/persistent/');
     try {
-      const persistentPath = videoPath.replace('/temp/', '/temp/persistent/');
       await fs.promises.mkdir(path.dirname(persistentPath), { recursive: true });
       await fs.promises.rename(videoPath, persistentPath);
       console.log(`Moved uploaded file to persistent temp: ${persistentPath}`);
@@ -540,6 +540,8 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
       }, 60 * 60 * 1000); // 1 hour
     } catch (err) {
       console.error('Error moving file to persistent temp:', err);
+      console.log('Original path:', videoPath);
+      console.log('Persistent path:', persistentPath);
       // Fallback: try to delete original
       try {
         await fs.promises.unlink(videoPath);
@@ -553,6 +555,8 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
 // Endpoint to export Q&A clips as ZIP or individual files
 router.post('/video/export-clips', async (req, res) => {
   const { videoPath, segments, format = 'original' } = req.body;
+
+  console.log('Export request received:', { videoPath, segments: segments?.length, format });
 
   if (!videoPath || !segments || !Array.isArray(segments) || segments.length === 0) {
     return res.status(400).json({ error: 'Missing required parameters: videoPath, segments' });
@@ -576,11 +580,35 @@ router.post('/video/export-clips', async (req, res) => {
     // Create export directory
     await fs.promises.mkdir(exportDir, { recursive: true });
 
-    // Check if source file exists
+    // Check if source file exists - try multiple possible locations
+    let actualVideoPath = videoPath;
+    const pathsToTry = [
+      videoPath,
+      videoPath.replace('/temp/persistent/', '/temp/'),
+      videoPath.replace('/Users/ml/temp/', '/Users/ml/temp/'),
+    ];
+
+    for (const testPath of pathsToTry) {
+      try {
+        await fs.promises.access(testPath);
+        actualVideoPath = testPath;
+        console.log('Found source file at:', actualVideoPath);
+        break;
+      } catch (err) {
+        console.log('File not found at:', testPath);
+      }
+    }
+
+    // If still not found, return error
     try {
-      await fs.promises.access(videoPath);
+      await fs.promises.access(actualVideoPath);
     } catch (err) {
-      return res.status(400).json({ error: 'Source video file not found' });
+      console.error('Source file not found at any location. Tried:', pathsToTry);
+      return res.status(400).json({
+        error: 'Source video file not found. The file may have expired or been deleted.',
+        requestedPath: videoPath,
+        triedPaths: pathsToTry
+      });
     }
 
     const clipPaths = [];
