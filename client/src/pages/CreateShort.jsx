@@ -24,11 +24,12 @@ const CreateShortPage = () => {
   const [downloadingQuality, setDownloadingQuality] = useState(null);
   const [processingForPlatform, setProcessingForPlatform] = useState(null);
 
-  // Q&A segments (for uploaded podcasts)
+  // Q&A segments (for uploaded podcasts AND YouTube downloads)
   const [qaPairs, setQaPairs] = useState([]);
   const [selectedSegments, setSelectedSegments] = useState(new Set());
   const [hoveredSegment, setHoveredSegment] = useState(null);
   const [stats, setStats] = useState(null);
+  const [qaDetected, setQaDetected] = useState(false); // Track if Q&A detection has been run
 
   // Export state
   const [selectedFormat, setSelectedFormat] = useState('tiktok');
@@ -206,7 +207,57 @@ const CreateShortPage = () => {
     window.location.href = downloadUrl;
   };
 
-  // ============ SEGMENT HANDLERS (for uploaded podcasts) ============
+  // ============ YOUTUBE Q&A DETECTION HANDLER ============
+  const handleDetectQaForYoutube = async () => {
+    if (!videoInfo) {
+      setError('Please get YouTube video info first');
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingStage('Downloading and analyzing Q&A segments...');
+    setError('');
+
+    try {
+      const response = await axios.post('/api/youtube/detect-qa', {
+        youtubeUrl
+      }, {
+        onUploadProgress: () => {
+          setProcessingStage('Downloading video from YouTube...');
+        }
+      });
+
+      if (response.data.success) {
+        setQaPairs(response.data.qaPairs || []);
+        setStats(response.data.stats);
+        setQaDetected(true);
+
+        // Use server-generated preview if available
+        if (response.data.previewUrl) {
+          setVideoUrl(response.data.previewUrl);
+          setPreviewUrl(response.data.previewUrl);
+        }
+
+        // Store video path for export
+        if (response.data.videoPathForExport) {
+          setVideoPathForExport(response.data.videoPathForExport);
+        }
+
+        setProcessingStage('');
+        alert(`Found ${response.data.qaPairs.length} Q&A segments! Scroll down to review and export clips.`);
+      } else {
+        setError('Failed to detect Q&A pairs');
+      }
+    } catch (err) {
+      console.error('Error detecting Q&A:', err);
+      setError(err.response?.data?.error || 'Failed to detect Q&A pairs. Please try again.');
+      setQaPairs([]);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // ============ SEGMENT HANDLERS (for uploaded podcasts AND YouTube) ============
   const toggleSegmentSelection = (segmentId) => {
     const newSelected = new Set(selectedSegments);
     if (newSelected.has(segmentId)) {
@@ -447,16 +498,34 @@ const CreateShortPage = () => {
                 {processingForPlatform === 15 ? '⏳ Processing...' : 'Download 15s Clip'}
               </button>
             </div>
+
+            {/* Q&A Detection Button */}
+            <div className="qa-detection-section">
+              <label>AI-Powered Q&A Detection:</label>
+              <p className="qa-detection-hint">
+                Automatically detect questions and answers in this video. Perfect for podcasts, interviews, and educational content.
+              </p>
+              <button
+                onClick={handleDetectQaForYoutube}
+                disabled={isProcessing || qaDetected}
+                className={`qa-detect-btn ${qaDetected ? 'detected' : ''}`}
+              >
+                {isProcessing ? '⏳ Detecting Q&A...' : qaDetected ? '✓ Q&A Detected' : '🎯 Detect Q&A Segments'}
+              </button>
+              {isProcessing && (
+                <p className="download-status">{processingStage}</p>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Uploaded File Preview and Q&A Processing */}
-      {uploadedFile && qaPairs.length > 0 && (
+      {/* Video Preview with Q&A Segments (for uploads OR YouTube with Q&A detected) */}
+      {(uploadedFile || (qaPairs.length > 0 && qaDetected)) && (
         <div className="video-preview-section">
           <div className="video-preview-card">
             <div className="preview-header-row">
-              <h4>Preview: {uploadedFile.name}</h4>
+              <h4>Preview: {uploadedFile ? uploadedFile.name : videoInfo?.title || 'Video'}</h4>
               {stats && (
                 <div className="stats-inline">
                   <span className="stat-chip">Segments: {stats.totalSegments}</span>

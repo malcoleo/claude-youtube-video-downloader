@@ -6,8 +6,10 @@ const fs = require('fs');
 const path = require('path');
 const VideoProcessor = require('../utils/video-processor');
 const { PLATFORM_SETTINGS } = require('../config/platforms');
+const PythonAIWrapper = require('../ai/python-wrapper');
 
 const videoProcessor = new VideoProcessor();
+const pythonAI = new PythonAIWrapper();
 
 // Helper function to format seconds to HH:MM:SS
 function formatTime(seconds) {
@@ -274,5 +276,169 @@ router.get('/platforms', (req, res) => {
     }))
   });
 });
+
+// Route to download YouTube video and detect Q&A segments
+router.post('/detect-qa', async (req, res) => {
+  try {
+    const { youtubeUrl } = req.body;
+
+    if (!youtubeUrl) {
+      return res.status(400).json({ error: 'YouTube URL is required' });
+    }
+
+    // Validate YouTube URL
+    if (!isValidYouTubeUrl(youtubeUrl)) {
+      return res.status(400).json({ error: 'Invalid YouTube URL' });
+    }
+
+    console.log(`[Q&A] Starting Q&A detection for: ${youtubeUrl}`);
+
+    // Get video info first
+    console.log('[Q&A] Fetching video info...');
+    const infoResult = await runYtDlp([
+      '-J',
+      '--no-warnings',
+      `"${youtubeUrl}"`
+    ]);
+    const info = JSON.parse(infoResult);
+    console.log(`[Q&A] Video: ${info.title.substring(0, 50)}... Duration: ${info.duration}s`);
+
+    // Download video to temp location
+    const tempFilePath = path.join(videoProcessor.tempDir, `youtube-${Date.now()}`);
+
+    console.log('[Q&A] Downloading video...');
+    await runYtDlp([
+      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+      '--merge-output-format', 'mp4',
+      '--output', `"${tempFilePath}.%(ext)s"`,
+      '--no-warnings',
+      `"${youtubeUrl}"`
+    ]);
+
+    const downloadedFile = tempFilePath + '.mp4';
+
+    if (!fs.existsSync(downloadedFile)) {
+      throw new Error('Download failed - file not found');
+    }
+    console.log(`[Q&A] File downloaded: ${downloadedFile}`);
+
+    // Extract audio for whisper processing
+    console.log('[Q&A] Extracting audio...');
+    const audioPath = tempFilePath + '.wav';
+
+    await new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      const ffmpegCmd = `ffmpeg -i "${downloadedFile}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`;
+      exec(ffmpegCmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error('FFmpeg audio extraction error:', err);
+          reject(err);
+        } else {
+          console.log('[Q&A] Audio extraction complete');
+          resolve();
+        }
+      });
+    });
+
+    // Run Q&A detection pipeline
+    console.log('[Q&A] Running whisper transcription + Q&A detection...');
+    const qaResult = await pythonAI.transcribeAndDetectQA(audioPath);
+    console.log(`[Q&A] Found ${qaResult.qaPairs.length} Q&A pairs`);
+
+    // Generate preview video (480p compressed for smooth hover playback)
+    console.log('[Q&A] Generating preview video...');
+    const previewPath = tempFilePath + '-preview.mp4';
+
+    await new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      const ffmpegCmd = `ffmpeg -i "${downloadedFile}" -vf "scale=854:480" -c:v libx264 -preset fast -crf 28 -c:a aac -b:a 64k "${previewPath}" -y`;
+      exec(ffmpegCmd, (err, stdout, stderr) => {
+        if (err) {
+          console.error('FFmpeg preview generation error:', err);
+          reject(err);
+        } else {
+          console.log('[Q&A] Preview generation complete');
+          resolve();
+        }
+      });
+    });
+
+    // Format Q&A pairs for frontend
+    const formattedQaPairs = qaResult.qaPairs.map((pair, idx) => ({
+      id: `qa-${idx}`,
+      questionStart: pair.question_start,
+      questionEnd: pair.question_end,
+      answerStart: pair.answer_start,
+      answerEnd: pair.answer_end,
+      duration: pair.answer_end - pair.question_start,
+      questionText: pair.question_text,
+      answerText: pair.answer_text,
+      questionSpeaker: pair.question_speaker,
+      answerSpeaker: pair.answer_speaker,
+      score: pair.score,
+      priority: pair.priority,
+      reasons: pair.reasons,
+      labels: {
+        question: pair.question_speaker === 'SPEAKER_00' ? 'Speaker A' : 'Speaker B',
+        answer: pair.answer_speaker === 'SPEAKER_00' ? 'Speaker A' : 'Speaker B'
+      }
+    }));
+
+    // Sort by score descending
+    formattedQaPairs.sort((a, b) => b.score - a.score);
+
+    // Copy downloaded file to output directory for export
+    const outputFilename = videoProcessor.generateUniqueFilename('mp4');
+    const outputPath = path.join(videoProcessor.outputDir, outputFilename);
+    await fs.promises.copyFile(downloadedFile, outputPath);
+
+    // Clean up temp files (keep output file)
+    try {
+      await fs.promises.unlink(downloadedFile);
+      await fs.promises.unlink(audioPath);
+      // Keep preview file for streaming
+      const previewUrl = `/temp/${path.basename(previewPath)}`;
+
+      res.json({
+        success: true,
+        qaPairs: formattedQaPairs,
+        stats: qaResult.stats,
+        videoPath: outputPath,
+        videoPathForExport: outputPath,
+        previewUrl: previewUrl,
+        videoInfo: {
+          title: info.title,
+          duration: info.duration,
+          thumbnail: info.thumbnail
+        },
+        message: `Found ${formattedQaPairs.length} Q&A pairs`
+      });
+    } catch (err) {
+      console.error('Error cleaning up temp files:', err);
+      // Still return success even if cleanup fails
+      res.json({
+        success: true,
+        qaPairs: formattedQaPairs,
+        stats: qaResult.stats,
+        videoPath: outputPath,
+        videoPathForExport: outputPath,
+        videoInfo: {
+          title: info.title,
+          duration: info.duration,
+          thumbnail: info.thumbnail
+        },
+        message: `Found ${formattedQaPairs.length} Q&A pairs`
+      });
+    }
+
+  } catch (error) {
+    console.error('Error in YouTube Q&A detection:', error);
+    res.status(500).json({
+      error: 'Failed to detect Q&A pairs: ' + error.message,
+      details: error.stack
+    });
+  }
+});
+
 
 module.exports = router;
