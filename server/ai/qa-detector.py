@@ -160,8 +160,13 @@ class QADetector:
                     # Look ahead and collect all consecutive answer segments
                     # (segments that are not questions and from the same speaker)
                     j = i + 2
-                    while j < len(segments):
+                    max_iterations = len(segments) - j  # Safety limit
+                    iterations = 0
+
+                    while j < len(segments) and iterations < max_iterations:
+                        iterations += 1
                         next_seg = segments[j]
+
                         # Stop if we hit a question, or if speaker changed (new speaker might be answering)
                         if self.is_question(next_seg['text']):
                             break
