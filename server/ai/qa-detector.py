@@ -149,23 +149,60 @@ class QADetector:
             # Check if this segment is a question
             if self.is_question(seg['text']) and len(seg['text']) >= self.min_question_length:
                 # Found a question - now find the answer
-                # Answer typically starts in the next segment
+                # Collect ALL consecutive segments from the other speaker as the answer
                 if i + 1 < len(segments):
-                    answer_seg = segments[i + 1]
+                    answer_start = segments[i + 1]['start']
+                    answer_end = segments[i + 1]['end']
+                    answer_text = segments[i + 1]['text']
+                    answer_speaker = segments[i + 1].get('speaker', 'UNKNOWN')
+                    answer_segments = [segments[i + 1]]
 
-                    # Skip if answer segment is also a question (continuous questions)
-                    if not self.is_question(answer_seg['text']):
-                        score, reasons = self.calculate_score(seg, answer_seg)
+                    # Look ahead and collect all consecutive answer segments
+                    # (segments that are not questions and from the same speaker)
+                    j = i + 2
+                    while j < len(segments):
+                        next_seg = segments[j]
+                        # Stop if we hit a question, or if speaker changed (new speaker might be answering)
+                        if self.is_question(next_seg['text']):
+                            break
+                        if next_seg.get('speaker') != answer_speaker:
+                            # Different speaker - could be a response, check if it's a continuation
+                            # Only include if it's very close in time (within 2 seconds)
+                            gap = next_seg['start'] - answer_end
+                            if gap <= 2.0:
+                                answer_segments.append(next_seg)
+                                answer_end = next_seg['end']
+                                answer_text += ' ' + next_seg['text']
+                            else:
+                                break
+                        else:
+                            # Same speaker, include this segment
+                            answer_segments.append(next_seg)
+                            answer_end = next_seg['end']
+                            answer_text += ' ' + next_seg['text']
+                        j += 1
+
+                    # Skip if we only have the single segment and it's a question
+                    if len(answer_segments) == 0 or self.is_question(answer_segments[0]['text']):
+                        # No valid answer found, just move past the question
+                        i += 1
+                    else:
+                        score, reasons = self.calculate_score(seg, {
+                            'start': answer_start,
+                            'end': answer_end,
+                            'text': answer_text,
+                            'speaker': answer_speaker
+                        })
 
                         qa_pair = {
                             'question_start': seg['start'],
                             'question_end': seg['end'],
-                            'answer_start': answer_seg['start'],
-                            'answer_end': answer_seg['end'],
+                            'answer_start': answer_start,
+                            'answer_end': answer_end,
                             'question_text': seg['text'].strip(),
-                            'answer_text': answer_seg['text'].strip(),
+                            'answer_text': answer_text.strip(),
                             'question_speaker': seg.get('speaker', 'UNKNOWN'),
-                            'answer_speaker': answer_seg.get('speaker', 'UNKNOWN'),
+                            'answer_speaker': answer_speaker,
                             'score': score,
                             'reasons': reasons,
                             'priority': 'high' if score >= 70 else 'medium' if score >= 50 else 'low'
@@ -175,7 +212,8 @@ class QADetector:
                         if score >= 40:
                             qa_pairs.append(qa_pair)
 
-                i += 2  # Skip past question and answer
+                        # Skip to the last answer segment we processed
+                        i = j
             else:
                 i += 1
 

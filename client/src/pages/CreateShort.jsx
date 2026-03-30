@@ -6,7 +6,6 @@ import {
   VideoCamera,
   UploadSimple,
   DownloadSimple,
-  Clock,
   Target,
   Check,
   Eye,
@@ -14,14 +13,19 @@ import {
   DeviceMobile,
   Camera,
   Play,
-  Video,
   Square,
   Monitor,
   Hourglass,
-  Sparkles,
+  Star,
   FileText,
-  Scissors
+  Scissors,
+  Moon,
+  Sun,
+  Trash,
+  Video
 } from '@phosphor-icons/react';
+
+// eslint-disable-next-line no-unused-vars
 import './CreateShort.css';
 
 // Unified page component - handles both YouTube URL and file upload
@@ -34,7 +38,6 @@ const CreateShortPage = () => {
   // Video info and preview state
   const [videoInfo, setVideoInfo] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState(null);
   const [videoPathForExport, setVideoPathForExport] = useState(null);
 
   // Processing state
@@ -42,7 +45,9 @@ const CreateShortPage = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
   const [downloadingQuality, setDownloadingQuality] = useState(null);
-  const [processingForPlatform, setProcessingForPlatform] = useState(null);
+
+  // Download progress state
+  const [downloadProgress, setDownloadProgress] = useState(null);
 
   // Q&A segments (for uploaded podcasts AND YouTube downloads)
   const [qaPairs, setQaPairs] = useState([]);
@@ -50,31 +55,111 @@ const CreateShortPage = () => {
   const [hoveredSegment, setHoveredSegment] = useState(null);
   const [stats, setStats] = useState(null);
   const [qaDetected, setQaDetected] = useState(false); // Track if Q&A detection has been run
+  const [chaptersAvailable, setChaptersAvailable] = useState(null); // Track if video has YouTube chapters
 
   // Export state
   const [selectedFormat, setSelectedFormat] = useState('tiktok');
-  const [selectedPlatform, setSelectedPlatform] = useState('tiktok');
-  const [platforms, setPlatforms] = useState([]);
 
   // Error state
   const [error, setError] = useState('');
 
+  // Dark mode state - default to light mode, respect system preference
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('darkMode');
+      if (saved !== null) {
+        return saved === 'true';
+      }
+      // Default to light mode, but can opt-in to system preference
+      return false;
+    }
+    return false;
+  });
+
   // Refs
   const playerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const urlInputRef = useRef(null);
 
-  // Fetch available platforms on component mount
+  // Cleanup temp files and reset state on hard refresh
   React.useEffect(() => {
-    const fetchPlatforms = async () => {
-      try {
-        const response = await axios.get('/api/youtube/platforms');
-        setPlatforms(response.data.platforms);
-      } catch (err) {
-        console.error('Error fetching platforms:', err);
+    const cleanupOnRefresh = () => {
+      // Show warning if there's an active download or processing
+      if (downloadingQuality !== null || isProcessing) {
+        return 'You have active downloads or processing. Are you sure you want to leave?';
+      }
+      return null;
+    };
+
+    const handleBeforeUnload = (e) => {
+      const message = cleanupOnRefresh();
+      if (message) {
+        e.preventDefault();
+        e.returnValue = message;
+        return message;
       }
     };
-    fetchPlatforms();
-  }, []);
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [downloadingQuality, isProcessing]);
+
+  // Apply dark mode class to document
+  React.useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark-mode');
+      localStorage.setItem('darkMode', 'true');
+    } else {
+      document.documentElement.classList.remove('dark-mode');
+      localStorage.setItem('darkMode', 'false');
+    }
+  }, [darkMode]);
+
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    setDarkMode(prev => !prev);
+  };
+
+  // Cleanup state and optionally clear temp downloads
+  const handleCleanup = () => {
+    if (window.confirm('This will clear all downloaded videos and reset your progress. This action cannot be undone. Continue?')) {
+      // Reset all state
+      setYoutubeUrl('');
+      setUploadedFile(null);
+      setVideoInfo(null);
+      setVideoUrl(null);
+      setVideoPathForExport(null);
+      setQaPairs([]);
+      setSelectedSegments(new Set());
+      setStats(null);
+      setQaDetected(false);
+      setChaptersAvailable(null);
+      setError('');
+      setProcessingStage('');
+      setDownloadingQuality(null);
+      setDownloadProgress(null);
+
+      // Clear localStorage for dark mode (keep it)
+      // Call server to delete temp files from disk
+      fetch('http://localhost:5001/api/youtube/clear-cache', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+        .then(response => response.json())
+        .then(data => {
+          console.log('Server cache cleared:', data);
+        })
+        .catch(err => {
+          console.error('Error clearing server cache:', err);
+        });
+
+      // Tell user cache is cleared
+      alert('Cache and downloads cleared. You can now start fresh.');
+    }
+  };
 
   // ============ FILE UPLOAD HANDLERS ============
   const handleSelectFileClick = () => {
@@ -120,11 +205,11 @@ const CreateShortPage = () => {
         setStats(response.data.stats);
         if (response.data.previewUrl) {
           setVideoUrl(response.data.previewUrl);
-          setPreviewUrl(response.data.previewUrl);
         }
         if (response.data.videoPathForExport) {
           setVideoPathForExport(response.data.videoPathForExport);
         }
+        setError('');
         setProcessingStage('');
       } else {
         setError('Failed to detect Q&A pairs');
@@ -147,19 +232,46 @@ const CreateShortPage = () => {
 
     setIsLoading(true);
     setError('');
+    setProcessingStage('Fetching video info...');
 
     try {
       const response = await axios.post('/api/youtube/info', { youtubeUrl });
       setVideoInfo(response.data);
-      setVideoUrl(response.data.url); // Use downloaded video URL for preview
+      // Use thumbnail as preview while video downloads, update with actual video URL after download
+      setVideoUrl(response.data.thumbnail || null);
       setInputMode('youtube');
       setIsLoading(false);
+      setProcessingStage('');
+      // Check if chapters are available
+      setChaptersAvailable(response.data.chapters || null);
     } catch (err) {
       console.error('Error getting YouTube info:', err);
       setError('Failed to get YouTube video info. Please check the URL and try again.');
       setIsLoading(false);
+      setProcessingStage('');
+      // Clear chapters when URL changes or fails
+      setChaptersAvailable(null);
     }
   };
+
+  // Add Enter key listener for YouTube URL input (must be after handleGetYoutubeInfo)
+  React.useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Enter' && inputMode === 'youtube' && youtubeUrl.trim()) {
+        handleGetYoutubeInfo();
+      }
+    };
+
+    if (urlInputRef.current) {
+      urlInputRef.current.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      if (urlInputRef.current) {
+        urlInputRef.current.removeEventListener('keydown', handleKeyDown);
+      }
+    };
+  }, [inputMode, youtubeUrl]);
 
   const handleDownloadOriginal = async (quality) => {
     if (!youtubeUrl) {
@@ -169,58 +281,73 @@ const CreateShortPage = () => {
 
     setDownloadingQuality(quality);
     setError('');
+    setDownloadProgress({ percent: 0, eta: null, speed: null });
+    setProcessingStage(`Downloading ${quality === '4k' ? '4K' : quality === 'hd' ? 'HD' : 'SD'}...`);
 
     try {
       const infoResponse = await axios.post('/api/youtube/info', { youtubeUrl });
+
+      // Download with progress tracking - use a unique ID for progress polling
+      const downloadId = 'dl-' + Date.now();
+
+      // Poll for progress while download is happening
+      let progressPolling;
+      const pollProgress = async () => {
+        try {
+          const progressResponse = await axios.get(`/api/youtube/progress?id=${downloadId}`);
+          if (progressResponse.data.percent > 0) {
+            setDownloadProgress(progressResponse.data);
+            setProcessingStage(`Downloading ${quality === '4k' ? '4K' : quality === 'hd' ? 'HD' : 'SD'}... ${Math.round(progressResponse.data.percent)}%`);
+          }
+          if (progressResponse.data.percent < 100) {
+            progressPolling = setTimeout(pollProgress, 500);
+          }
+        } catch (err) {
+          console.error('Error polling progress:', err);
+        }
+      };
+
+      // Start polling
+      progressPolling = setTimeout(pollProgress, 500);
+
+      // Download the video
       const response = await axios.post('/api/youtube/download', {
+        id: downloadId,
         youtubeUrl,
         start: 0,
         end: infoResponse.data.duration,
         platform: null,
         quality: quality
+      }, {
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setDownloadProgress({ percent, eta: null, speed: null });
+          setProcessingStage(`Preparing download... ${percent}%`);
+        }
       });
+
+      clearTimeout(progressPolling);
 
       if (response.data.success) {
         handleDownload(response.data.videoPath);
+        setDownloadProgress(null);
+        setProcessingStage('');
       } else {
         setError('Download failed - server returned error');
+        setDownloadProgress(null);
+        setProcessingStage('');
       }
       setDownloadingQuality(null);
     } catch (err) {
       console.error('Error downloading video:', err);
       setError('Failed to download video: ' + err.message);
+      setDownloadProgress(null);
+      setProcessingStage('');
       setDownloadingQuality(null);
     }
   };
 
-  const handleDownloadForPlatform = async (duration) => {
-    if (!youtubeUrl) {
-      setError('Please enter a YouTube URL');
-      return;
-    }
-
-    setProcessingForPlatform(duration);
-    setError('');
-
-    try {
-      const response = await axios.post('/api/youtube/download', {
-        youtubeUrl,
-        start: 0,
-        end: duration,
-        platform: selectedPlatform
-      });
-
-      if (response.data.success) {
-        handleDownload(response.data.videoPath);
-      }
-      setProcessingForPlatform(null);
-    } catch (err) {
-      console.error('Error processing video:', err);
-      setError('Failed to process video. Please try again.');
-      setProcessingForPlatform(null);
-    }
-  };
-
+  // ============ YOUTUBE DOWNLOAD HANDLERS ============
   const handleDownload = (videoUrl) => {
     const filename = videoUrl.split('/').pop();
     const downloadUrl = `http://localhost:5001/download/${filename}?t=${Date.now()}`;
@@ -235,27 +362,51 @@ const CreateShortPage = () => {
     }
 
     setIsProcessing(true);
-    setProcessingStage('Downloading and analyzing Q&A segments...');
+    setProcessingStage('Analyzing video... Detecting questions and answers.');
     setError('');
+    setDownloadProgress({ percent: 0, eta: null, speed: null });
 
     try {
-      const response = await axios.post('/api/youtube/detect-qa', {
-        youtubeUrl
-      }, {
-        onUploadProgress: () => {
-          setProcessingStage('Downloading video from YouTube...');
+      // Use a unique ID for progress polling
+      const downloadId = 'qa-' + Date.now();
+
+      // Poll for progress while detection is happening
+      let progressPolling;
+      const pollProgress = async () => {
+        try {
+          const progressResponse = await axios.get(`/api/youtube/progress?id=${downloadId}`);
+          if (progressResponse.data.percent > 0) {
+            setDownloadProgress(progressResponse.data);
+            setProcessingStage(`Analyzing... ${Math.round(progressResponse.data.percent)}%`);
+          }
+          if (progressResponse.data.percent < 100) {
+            progressPolling = setTimeout(pollProgress, 500);
+          }
+        } catch (err) {
+          console.error('Error polling progress:', err);
         }
+      };
+
+      // Start polling
+      progressPolling = setTimeout(pollProgress, 500);
+
+      const response = await axios.post('/api/youtube/detect-qa', {
+        id: downloadId,
+        youtubeUrl
       });
+
+      clearTimeout(progressPolling);
 
       if (response.data.success) {
         setQaPairs(response.data.qaPairs || []);
         setStats(response.data.stats);
         setQaDetected(true);
+        setError('');
+        setProcessingStage('');
 
         // Use server-generated preview if available
         if (response.data.previewUrl) {
           setVideoUrl(response.data.previewUrl);
-          setPreviewUrl(response.data.previewUrl);
         }
 
         // Store video path for export
@@ -263,15 +414,18 @@ const CreateShortPage = () => {
           setVideoPathForExport(response.data.videoPathForExport);
         }
 
-        setProcessingStage('');
-        alert(`Found ${response.data.qaPairs.length} Q&A segments! Scroll down to review and export clips.`);
+        setDownloadProgress(null);
       } else {
         setError('Failed to detect Q&A pairs');
+        setDownloadProgress(null);
+        setProcessingStage('');
       }
     } catch (err) {
       console.error('Error detecting Q&A:', err);
       setError(err.response?.data?.error || 'Failed to detect Q&A pairs. Please try again.');
       setQaPairs([]);
+      setDownloadProgress(null);
+      setProcessingStage('');
     } finally {
       setIsProcessing(false);
     }
@@ -324,7 +478,7 @@ const CreateShortPage = () => {
     }
 
     setIsProcessing(true);
-    setProcessingStage(`Exporting ${selectedSegments.size} clip(s) in ${selectedFormat.toUpperCase()} format...`);
+    setProcessingStage(`Preparing ${selectedSegments.size} clip(s)...`);
 
     try {
       const segmentsToExport = qaPairs.filter(qa => selectedSegments.has(qa.id)).map(qa => ({
@@ -333,6 +487,7 @@ const CreateShortPage = () => {
         id: qa.id
       }));
 
+      // Use selectedFormat directly for export API
       const response = await axios.post('/api/highlights/video/export-clips', {
         videoPath: videoPathForExport,
         segments: segmentsToExport,
@@ -343,10 +498,6 @@ const CreateShortPage = () => {
         window.location.href = `http://localhost:5001${response.data.downloadUrl}`;
         setProcessingStage('');
         setIsProcessing(false);
-        alert(response.data.isZip
-          ? `${response.data.clipCount} clips exported as ZIP. Download should start automatically.`
-          : 'Clip exported. Download should start automatically.'
-        );
       } else {
         setError('Failed to export clips');
         setProcessingStage('');
@@ -362,15 +513,15 @@ const CreateShortPage = () => {
 
   // ============ UTILITY FUNCTIONS ============
   const getPriorityColor = (priority) => {
-    if (priority === 'high') return '#4caf50';
-    if (priority === 'medium') return '#ff9800';
-    return '#f44336';
+    if (priority === 'high') return 'var(--success)';
+    if (priority === 'medium') return 'var(--warning)';
+    return 'var(--error)';
   };
 
   const getScoreColor = (score) => {
-    if (score >= 80) return '#4caf50';
-    if (score >= 60) return '#ff9800';
-    return '#f44336';
+    if (score >= 80) return 'var(--success)';
+    if (score >= 60) return 'var(--warning)';
+    return 'var(--error)';
   };
 
   const formatTime = (seconds) => {
@@ -381,7 +532,15 @@ const CreateShortPage = () => {
 
   return (
     <div className="create-short-page">
-      <h1>Video Clip Generator</h1>
+      <div className="page-header">
+        <h1>Video Clip Generator</h1>
+        <button className="cleanup-btn" onClick={handleCleanup} aria-label="Clear cache and downloads" title="Clear cache and downloads">
+          <Trash weight="fill" size={20} />
+        </button>
+        <button className="dark-mode-toggle" onClick={toggleDarkMode} aria-label="Toggle dark mode">
+          {darkMode ? <Sun weight="fill" size={20} /> : <Moon weight="fill" size={20} />}
+        </button>
+      </div>
 
       {/* Unified Input Section */}
       <div className="input-section">
@@ -414,11 +573,12 @@ const CreateShortPage = () => {
               placeholder="Paste YouTube URL here..."
               value={youtubeUrl}
               onChange={(e) => setYoutubeUrl(e.target.value)}
-              disabled={isLoading || processingForPlatform !== null || downloadingQuality !== null || isProcessing}
+              disabled={isLoading || downloadingQuality !== null || isProcessing}
+              ref={urlInputRef}
             />
             <button
               onClick={handleGetYoutubeInfo}
-              disabled={isLoading || processingForPlatform !== null || downloadingQuality !== null || isProcessing}
+              disabled={isLoading || downloadingQuality !== null || isProcessing}
             >
               {isLoading ? 'Loading...' : 'Get Video Info'}
             </button>
@@ -448,12 +608,23 @@ const CreateShortPage = () => {
             )}
             <p><strong>Duration:</strong> {Math.floor(videoInfo.duration / 60)}:{String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')}</p>
 
+            {/* Chapter info banner */}
+            {chaptersAvailable && (
+              <div className="chapter-info-banner">
+                <Star size={16} weight="fill" style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                <span>
+                  <strong>{chaptersAvailable.count} Chapter{chaptersAvailable.count > 1 ? 's' : ''} Found</strong>
+                  <span className="chapter-hint"> - Clips will use YouTube's curated chapter markers</span>
+                </span>
+              </div>
+            )}
+
             <div className="download-quality-section">
               <label>Download Original Video:</label>
               <div className="quality-buttons">
                 <button
                   onClick={() => handleDownloadOriginal('4k')}
-                  disabled={downloadingQuality !== null || processingForPlatform !== null}
+                  disabled={downloadingQuality !== null}
                   className="quality-btn"
                 >
                   {downloadingQuality === '4k' ? <Hourglass size={20} weight="fill" style={{ marginRight: 8 }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8 }} />}
@@ -461,88 +632,70 @@ const CreateShortPage = () => {
                 </button>
                 <button
                   onClick={() => handleDownloadOriginal('hd')}
-                  disabled={downloadingQuality !== null || processingForPlatform !== null}
+                  disabled={downloadingQuality !== null}
                   className="quality-btn"
                 >
                   {downloadingQuality === 'hd' ? <Hourglass size={20} weight="fill" style={{ marginRight: 8 }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8 }} />}
                   {downloadingQuality === 'hd' ? 'Downloading HD...' : 'HD (1080p/720p)'}
                 </button>
+                <button
+                  onClick={() => handleDownloadOriginal('sd')}
+                  disabled={downloadingQuality !== null}
+                  className="quality-btn"
+                >
+                  {downloadingQuality === 'sd' ? <Hourglass size={20} weight="fill" style={{ marginRight: 8 }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8 }} />}
+                  {downloadingQuality === 'sd' ? 'Downloading SD...' : 'Preview (480p)'}
+                </button>
               </div>
               {downloadingQuality && (
-                <p className="download-status">
-                  Downloading in {downloadingQuality === '4k' ? '4K' : 'HD'} quality... This may take a minute.
-                </p>
+                <div className="download-progress-section">
+                  <div className="download-status">
+                    <span className="progress-label">
+                      {downloadingQuality === '4k' ? '4K' : downloadingQuality === 'hd' ? 'HD' : 'SD (480p)'}
+                      {downloadProgress?.percent === 100 ? ' Complete' : ' Downloading...'}
+                    </span>
+                    <div className="progress-bar-container">
+                      <div className="progress-bar" style={{ backgroundColor: 'var(--neutral-200)' }}>
+                        <div
+                          className="progress-fill"
+                          style={{
+                            width: `${downloadProgress?.percent || 0}%`,
+                            background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%)'
+                          }}
+                        />
+                      </div>
+                      <span className="progress-text">{downloadProgress?.percent || 0}%</span>
+                    </div>
+                    {downloadProgress?.percent > 0 && (
+                      <div className="progress-details">
+                        {downloadProgress?.percent === 100
+                          ? 'Processing video...'
+                          : downloadProgress?.eta && downloadProgress?.speed
+                            ? `ETA: ${downloadProgress.eta} | ${downloadProgress.speed}/s`
+                            : 'Downloading...'}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
-            <div className="platform-selector">
-              <label>Convert for Platform (optional):</label>
-              <select
-                value={selectedPlatform}
-                onChange={(e) => setSelectedPlatform(e.target.value)}
-                disabled={isLoading || processingForPlatform !== null}
-              >
-                {platforms.map(platform => (
-                  <option key={platform.id} value={platform.id}>
-                    {platform.name} ({platform.dimensions.aspectRatio})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="action-buttons">
-              <button
-                onClick={() => handleDownloadForPlatform(videoInfo.duration)}
-                disabled={processingForPlatform !== null}
-                className="process-btn full-video-btn"
-              >
-                {processingForPlatform === videoInfo.duration ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : <DownloadSimple size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} />}
-                {processingForPlatform === videoInfo.duration ? 'Processing...' : `Download Full Video (${Math.floor(videoInfo.duration / 60)}:${String(Math.floor(videoInfo.duration % 60)).padStart(2, '0')})`}
-              </button>
-              <button
-                onClick={() => handleDownloadForPlatform(60)}
-                disabled={processingForPlatform !== null}
-                className="process-btn"
-              >
-                {processingForPlatform === 60 ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
-                {processingForPlatform === 60 ? 'Processing...' : 'Download 60s Clip'}
-              </button>
-              <button
-                onClick={() => handleDownloadForPlatform(30)}
-                disabled={processingForPlatform !== null}
-                className="process-btn"
-              >
-                {processingForPlatform === 30 ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
-                {processingForPlatform === 30 ? 'Processing...' : 'Download 30s Clip'}
-              </button>
-              <button
-                onClick={() => handleDownloadForPlatform(15)}
-                disabled={processingForPlatform !== null}
-                className="process-btn"
-              >
-                {processingForPlatform === 15 ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : null}
-                {processingForPlatform === 15 ? 'Processing...' : 'Download 15s Clip'}
-              </button>
-            </div>
-
-            {/* Q&A Detection Button */}
-            <div className="qa-detection-section">
-              <label>AI-Powered Q&A Detection:</label>
-              <p className="qa-detection-hint">
-                Automatically detect questions and answers in this video. Perfect for podcasts, interviews, and educational content.
-              </p>
-              <button
-                onClick={handleDetectQaForYoutube}
-                disabled={isProcessing || qaDetected}
-                className={`qa-detect-btn ${qaDetected ? 'detected' : ''}`}
-              >
-                {isProcessing ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : qaDetected ? <Check size={20} weight="bold" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : <Target size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} />}
-                {isProcessing ? 'Detecting Q&A...' : qaDetected ? 'Q&A Detected' : 'Detect Q&A Segments'}
-              </button>
-              {isProcessing && (
-                <p className="download-status">{processingStage}</p>
-              )}
-            </div>
+            {/* Q&A Detection Button - only visible after video is downloaded */}
+            {!qaDetected && (
+              <div className="qa-detection-section">
+                <button
+                  onClick={handleDetectQaForYoutube}
+                  disabled={isProcessing || qaDetected}
+                  className={`qa-detect-btn ${qaDetected ? 'detected' : ''}`}
+                >
+                  {isProcessing ? <Hourglass size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : qaDetected ? <Check size={20} weight="bold" style={{ marginRight: 8, verticalAlign: 'middle' }} /> : <Target size={20} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} />}
+                  {isProcessing ? 'Analyzing video...' : qaDetected ? 'Analysis Complete' : 'Analyze for Q&A'}
+                </button>
+                {isProcessing && (
+                  <p className="download-status">{processingStage}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -624,8 +777,8 @@ const CreateShortPage = () => {
             We analyzed your video but didn't detect any clear question-and-answer patterns.
             This can happen with music, monologues, or conversations without distinct Q&A structure.
           </p>
-          <button className="btn-outline" onClick={handleDetectQaClick}>
-            <Sparkles size={16} weight="fill" style={{ marginRight: 8 }} />
+          <button className="btn-outline" onClick={handleDetectQaForYoutube}>
+            <Star size={16} weight="fill" style={{ marginRight: 8 }} />
             Try Detecting Again
           </button>
         </div>
@@ -659,6 +812,11 @@ const CreateShortPage = () => {
                     <span className="score-chip" style={{ backgroundColor: getScoreColor(qa.score) }}>
                       Score: {qa.score}
                     </span>
+                    {qa.source === 'youtube-chapter' && (
+                      <span className="source-chip" title="YouTube chapter (creator-curated)">
+                        <Star size={12} weight="fill" /> Chapter
+                      </span>
+                    )}
                   </div>
                   <span className="priority-chip" style={{ backgroundColor: getPriorityColor(qa.priority) }}>
                     {qa.priority.toUpperCase()}
@@ -738,16 +896,7 @@ const CreateShortPage = () => {
         </>
       )}
 
-      {/* Instructions */}
-      <div className="instructions">
-        <h3>How to use:</h3>
-        <ol>
-          <li><strong>YouTube URL:</strong> Paste a YouTube URL and click "Get Video Info" to download</li>
-          <li><strong>Upload File:</strong> Upload your own video/audio file (MP4, MOV, MKV, MP3, WAV)</li>
-          <li><strong>For YouTube:</strong> Download in 4K/HD or convert for specific platforms</li>
-          <li><strong>For Uploads:</strong> AI detects Q&A segments, select clips and export in your desired format</li>
-        </ol>
-      </div>
+      {/* Video Preview with Q&A Segments (for uploads OR YouTube with Q&A detected) */}
     </div>
   );
 };

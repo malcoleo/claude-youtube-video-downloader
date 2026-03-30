@@ -47,10 +47,11 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath)
     }
 
     // Adjust timestamps to account for clip start offset
+    // Timestamps should be relative to the start of the clip, not the original video
     const adjustedWords = transcript.words.map(word => ({
       ...word,
-      start: word.start + startTime,
-      end: word.end + startTime
+      start: word.start - startTime,
+      end: word.end - startTime
     }));
 
     // Write adjusted words to temp JSON for caption-generator.py
@@ -740,22 +741,39 @@ router.post('/video/export-clips', async (req, res) => {
     }
 
     // For 9:16 vertical formats, detect face position for smart cropping
-    let cropFilter = selectedFormat.filter;
+    // Track face position across the entire video for consistent cropping
+    let baseCropFilter = selectedFormat.filter;
     if (['tiktok', 'reels', 'shorts'].includes(format) && segments.length > 0) {
       try {
-        console.log('Detecting face position for smart crop...');
-        const firstSegment = segments[0];
+        console.log('Detecting face positions for smart crop...');
+
+        // Get the min start time and max end time across all segments
+        // This ensures we analyze the FULL content being exported, not just one segment
+        const minStart = Math.min(...segments.map(s => s.start));
+        const maxEnd = Math.max(...segments.map(s => s.end));
+        const totalDuration = maxEnd - minStart;
+
+        // Use at least 15 seconds or the full video duration (whichever is smaller)
+        // for face detection to get accurate tracking
+        const detectDuration = Math.min(15, totalDuration);
         const cropParams = await pythonAI.detectFaceCrop(
           actualVideoPath,
-          firstSegment.start,
-          Math.min(5, firstSegment.end - firstSegment.start)
+          minStart,
+          detectDuration
         );
 
         if (cropParams.ffmpeg_crop_filter) {
           console.log(`Using smart crop: ${cropParams.speaker_position} speaker detected`);
-          cropFilter = cropParams.ffmpeg_crop_filter;
+          // Use the detected face position as base
+          baseCropFilter = cropParams.ffmpeg_crop_filter;
+
+          // Store crop params for logging
+          console.log(`Crop parameters: x=${cropParams.crop_x}, y=${cropParams.crop_y}, w=${cropParams.crop_width}, h=${cropParams.crop_height}`);
+          console.log(`Padding available - Left: ${cropParams.x_padding_left || 0}px, Right: ${cropParams.x_padding_right || 0}px, Top: ${cropParams.y_padding_top || 0}px, Bottom: ${cropParams.y_padding_bottom || 0}px`);
         } else if (cropParams.crop_type === 'center') {
           console.log('No faces detected - using center crop');
+          // Fall back to center crop for this format
+          baseCropFilter = selectedFormat.filter;
         }
       } catch (faceDetectErr) {
         console.warn('Face detection failed, falling back to center crop:', faceDetectErr.message);
@@ -781,37 +799,68 @@ router.post('/video/export-clips', async (req, res) => {
         await generateSubtitlesForClip(actualVideoPath, segment.start, assPath);
       }
 
+      // Reuse the base crop filter for all segments (already analyzed the full video)
+      // The crop was designed with enough padding to handle speaker movement
+      let segmentCropFilter = baseCropFilter;
+
+      // Apply Hormozi-style effects
+      const useHormoziEffects = true; // Turn on Hormozi-style effects
+      const colorGradingFilter = 'eq=contrast=1.15:saturation=1.25:gamma=1.1:gamma_r=1.1:gamma_g=1.1:gamma_b=1.1';
+      // Zoompan disabled due to FFmpeg 8 compatibility issues
+      // const bounceFilter = 'zoompan=z=1.05:d=100';
+      const bounceFilter = '';
+
       // Export clip (with or without subtitles burned in)
       await new Promise((resolve, reject) => {
         const { exec } = require('child_process');
-        let ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -c:v libx264 -c:a aac -y`;
 
         // Build video filter chain
         const filters = [];
 
         // Apply format-specific filters (or smart crop if detected)
-        if (cropFilter) {
-          filters.push(cropFilter);
+        if (segmentCropFilter) {
+          filters.push(segmentCropFilter);
+          console.log(`  Filter: ${segmentCropFilter.substring(0, 80)}...`);
+        }
+
+        // Add Hormozi color grading if enabled
+        if (useHormoziEffects) {
+          filters.push(colorGradingFilter);
+          console.log(`  Color grading: ${colorGradingFilter.substring(0, 50)}...`);
+        }
+
+        // Add bounce effect if enabled
+        if (useHormoziEffects && bounceFilter) {
+          filters.push(bounceFilter);
+          console.log(`  Bounce effect: ${bounceFilter.substring(0, 50)}...`);
         }
 
         // Add subtitle filter if ASS file exists
         if (assPath && fs.existsSync(assPath)) {
           const assPathAbs = path.resolve(assPath);
           filters.push(`ass='${assPathAbs}'`);
+          console.log(`  Subtitles: ${assPathAbs}`);
         }
 
         // Apply combined filters if any
+        let ffmpegCmd;
         if (filters.length > 0) {
           const filterString = filters.join(',');
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${videoPath}" -vf "${filterString}" -c:v libx264 -c:a aac -y "${baseOutputPath}"`;
+          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -vf "${filterString}" -c:v libx264 -c:a aac -y "${baseOutputPath}"`;
         } else {
-          ffmpegCmd += ` "${baseOutputPath}"`;
+          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -c:v libx264 -c:a aac -y "${baseOutputPath}"`;
         }
 
-        console.log('Exporting clip:', ffmpegCmd.substring(0, 200) + '...');
-        exec(ffmpegCmd, (err, stdout, stderr) => {
+        console.log(`Exporting clip ${i + 1}/${segments.length}:`);
+        console.log(`  Input: ${actualVideoPath}`);
+        console.log(`  Output: ${baseOutputPath}`);
+        console.log(`  Duration: ${duration}s`);
+        console.log(`  FFmpeg: ${ffmpegCmd.substring(0, 200)}${ffmpegCmd.length > 200 ? '...' : ''}`);
+
+        exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
           if (err) {
             console.error('Clip export error:', err);
+            console.error('FFmpeg stderr:', stderr);
             reject(err);
           } else {
             console.log(`Clip ${i + 1}/${segments.length} exported${assPath ? ' with subtitles' : ''}`);

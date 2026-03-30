@@ -27,13 +27,13 @@ app.set('trust proxy', 1);
 app.use(helmet());
 app.use(cors());
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  validate: false // Disable header validation
-});
-app.use(limiter);
+// Rate limiting disabled for development
+// const limiter = rateLimit({
+//   windowMs: 15 * 60 * 1000, // 15 minutes
+//   max: 100, // Limit each IP to 100 requests per windowMs
+//   validate: false // Disable header validation
+// });
+// app.use(limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));

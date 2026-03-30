@@ -362,7 +362,7 @@ const VideoEditor = ({ videoData, onDownload, selectedPlatform }) => {
                             style={{
                               backgroundColor: getPriorityColor(segment.priority),
                               color: 'white',
-                              fontSize: '0.75rem'
+                              fontSize: 'var(--text-xs, 12px)'
                             }}
                           />
                         </Box>

@@ -3,6 +3,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import CreateShortPage from './pages/CreateShort';
 import './App.css';
+import './styles/design-tokens.css';
 
 function App() {
   return (

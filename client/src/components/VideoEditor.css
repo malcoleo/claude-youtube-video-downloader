@@ -147,8 +147,9 @@
 .timeline-labels {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--text-xs, 12px);
   color: var(--neutral-500);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Segment preview */
@@ -188,7 +189,7 @@
   background: var(--neutral-200);
   border-radius: var(--radius-md);
   color: var(--neutral-400);
-  font-size: 18px;
+  font-size: var(--text-lg, 18px);
 }
 
 /* Modal overlay */
