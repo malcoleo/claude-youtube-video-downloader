@@ -89,6 +89,62 @@ router.post('/track-engagement', async (req, res) => {
   }
 });
 
+// Track CMS upload
+router.post('/track-cms-upload', async (req, res) => {
+  try {
+    const { userId, videoId, cmsPlatform, cmsItemId } = req.body;
+
+    if (!userId || !videoId || !cmsPlatform || !cmsItemId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId, videoId, cmsPlatform, and cmsItemId are required'
+      });
+    }
+
+    const eventId = await analyticsTracker.trackCMSUpload(userId, videoId, cmsPlatform, cmsItemId);
+
+    res.json({
+      success: true,
+      eventId,
+      message: 'CMS upload tracked successfully'
+    });
+  } catch (error) {
+    console.error('Error tracking CMS upload:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to track CMS upload: ' + error.message
+    });
+  }
+});
+
+// Track content published
+router.post('/track-content-published', async (req, res) => {
+  try {
+    const { userId, cmsPlatform, cmsItemId, contentUrl } = req.body;
+
+    if (!userId || !cmsPlatform || !cmsItemId || !contentUrl) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId, cmsPlatform, cmsItemId, and contentUrl are required'
+      });
+    }
+
+    const eventId = await analyticsTracker.trackContentPublished(userId, cmsPlatform, cmsItemId, contentUrl);
+
+    res.json({
+      success: true,
+      eventId,
+      message: 'Content publication tracked successfully'
+    });
+  } catch (error) {
+    console.error('Error tracking content published:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to track content publication: ' + error.message
+    });
+  }
+});
+
 // Get user analytics
 router.get('/user/:userId', async (req, res) => {
   try {
@@ -133,7 +189,48 @@ router.get('/overall', async (req, res) => {
   }
 });
 
-// Get trending platforms
+// Get CMS analytics
+router.get('/cms/:cmsPlatform', async (req, res) => {
+  try {
+    const { cmsPlatform } = req.params;
+    const { days = 30 } = req.query;
+
+    const analytics = await analyticsTracker.getCMSAnalytics(cmsPlatform, parseInt(days));
+
+    res.json({
+      success: true,
+      cmsPlatform,
+      analytics,
+      days: parseInt(days)
+    });
+  } catch (error) {
+    console.error('Error getting CMS analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get CMS analytics: ' + error.message
+    });
+  }
+});
+
+// Get external analytics service status
+router.get('/external-services', (req, res) => {
+  try {
+    const status = analyticsTracker.getExternalServiceStatus();
+
+    res.json({
+      success: true,
+      externalServices: status
+    });
+  } catch (error) {
+    console.error('Error getting external service status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get external service status: ' + error.message
+    });
+  }
+});
+
+// Get trends
 router.get('/trends', async (req, res) => {
   try {
     const { days = 30 } = req.query;
@@ -142,6 +239,7 @@ router.get('/trends', async (req, res) => {
 
     // Calculate platform trends
     const platformCounts = {};
+    const cmsCounts = {};
     const dailyCounts = {};
 
     events.forEach(event => {
@@ -152,6 +250,10 @@ router.get('/trends', async (req, res) => {
         if (!dailyCounts[date]) dailyCounts[date] = {};
 
         dailyCounts[date][event.platform] = (dailyCounts[date][event.platform] || 0) + 1;
+      }
+
+      if (event.eventType === 'cms_uploaded' && event.cmsPlatform) {
+        cmsCounts[event.cmsPlatform] = (cmsCounts[event.cmsPlatform] || 0) + 1;
       }
     });
 
@@ -169,6 +271,9 @@ router.get('/trends', async (req, res) => {
         platformPopularity: Object.entries(platformCounts)
           .sort(([,a], [,b]) => b - a)
           .map(([platform, count]) => ({ platform, count })),
+        cmsPopularity: Object.entries(cmsCounts)
+          .sort(([,a], [,b]) => b - a)
+          .map(([cms, count]) => ({ cms, count })),
         timeSeries
       }
     });

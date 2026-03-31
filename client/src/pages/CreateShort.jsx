@@ -345,7 +345,13 @@ const CreateShortPage = () => {
     setProcessingStage('Fetching video info...');
 
     try {
-      const response = await axios.post('/api/youtube/info', { youtubeUrl });
+      // Make the request with increased timeout to accommodate yt-dlp processing
+      const response = await axios.post('/api/youtube/info', {
+        youtubeUrl
+      }, {
+        timeout: 45000  // 45 second timeout for yt-dlp processing
+      });
+
       setVideoInfo(response.data);
       // Use thumbnail as preview while video downloads, update with actual video URL after download
       setVideoUrl(response.data.thumbnail || null);
@@ -356,7 +362,45 @@ const CreateShortPage = () => {
       setChaptersAvailable(response.data.chapters || null);
     } catch (err) {
       console.error('Error getting YouTube info:', err);
-      setError('Failed to get YouTube video info. Please check the URL and try again.');
+      console.error('Error details:', {
+        message: err.message,
+        code: err.code,
+        response: err.response ? {
+          status: err.response.status,
+          data: err.response.data,
+          statusText: err.response.statusText
+        } : 'No response object',
+        isAxiosError: axios.isAxiosError ? axios.isAxiosError(err) : 'Unknown'
+      });
+
+      // Handle different types of errors appropriately
+      if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
+        setError('Request timed out. YouTube processing took too long. Please try again with a shorter video or check your internet connection.');
+      } else if (err.response && err.response.data) {
+        if (typeof err.response.data === 'object' && err.response.data.suggestions) {
+          // Display suggestions to help user fix the URL
+          const suggestionsText = Array.isArray(err.response.data.suggestions)
+            ? err.response.data.suggestions.join('\n• ')
+            : String(err.response.data.suggestions);
+          setError(`Invalid YouTube URL. Suggestions:\n• ${suggestionsText}`);
+        } else if (typeof err.response.data === 'object' && err.response.data.error) {
+          // Display the server error message
+          setError(String(err.response.data.error));
+        } else if (typeof err.response.data === 'string') {
+          // If the response is just a string, display it
+          setError(err.response.data);
+        } else {
+          // Fallback to generic message but with more detail
+          setError('Failed to get YouTube video info. Server returned an error. Please check the URL and try again.');
+        }
+      } else if (err.request) {
+        // Network error - no response received
+        setError('Network error: Could not connect to server. Please check your internet connection and ensure the server is running.');
+      } else {
+        // Something else happened
+        setError('Failed to get YouTube video info: ' + err.message);
+      }
+
       setIsLoading(false);
       setProcessingStage('');
       // Clear chapters when URL changes or fails
@@ -395,7 +439,11 @@ const CreateShortPage = () => {
     setProcessingStage(`Downloading ${quality === '4k' ? '4K' : quality === 'hd' ? 'HD' : 'SD'}...`);
 
     try {
-      const infoResponse = await axios.post('/api/youtube/info', { youtubeUrl });
+      const infoResponse = await axios.post('/api/youtube/info', {
+        youtubeUrl
+      }, {
+        timeout: 45000  // 45 second timeout for yt-dlp processing
+      });
 
       // Download with progress tracking - use a unique ID for progress polling
       const downloadId = 'dl-' + Date.now();
@@ -429,6 +477,7 @@ const CreateShortPage = () => {
         platform: null,
         quality: quality
       }, {
+        timeout: 300000,  // 5 minute timeout for video download
         onUploadProgress: (progressEvent) => {
           const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
           setDownloadProgress({ percent, eta: null, speed: null });
@@ -439,6 +488,10 @@ const CreateShortPage = () => {
       clearTimeout(progressPolling);
 
       if (response.data.success) {
+        // Set the video path for export functionality
+        setVideoPathForExport(response.data.videoPath);
+
+        // Trigger the download
         handleDownload(response.data.videoPath);
         setDownloadProgress(null);
         setProcessingStage('');
@@ -450,7 +503,41 @@ const CreateShortPage = () => {
       setDownloadingQuality(null);
     } catch (err) {
       console.error('Error downloading video:', err);
-      setError('Failed to download video: ' + err.message);
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response ? {
+          status: err.response.status,
+          data: err.response.data,
+          statusText: err.response.statusText
+        } : 'No response object',
+        isAxiosError: axios.isAxiosError ? axios.isAxiosError(err) : 'Unknown'
+      });
+
+      if (err.response && err.response.data) {
+        if (typeof err.response.data === 'object' && err.response.data.suggestions) {
+          // Display suggestions to help user fix the URL
+          const suggestionsText = Array.isArray(err.response.data.suggestions)
+            ? err.response.data.suggestions.join('\n• ')
+            : String(err.response.data.suggestions);
+          setError(`Invalid YouTube URL. Suggestions:\n• ${suggestionsText}`);
+        } else if (typeof err.response.data === 'object' && err.response.data.error) {
+          // Display the server error message
+          setError(String(err.response.data.error));
+        } else if (typeof err.response.data === 'string') {
+          // If the response is just a string, display it
+          setError(err.response.data);
+        } else {
+          // Fallback to generic message
+          setError('Failed to download video: ' + err.message);
+        }
+      } else if (err.request) {
+        // Network error - no response received
+        setError('Network error: Could not connect to server. Please check your internet connection.');
+      } else {
+        // Something else happened
+        setError('Failed to download video: ' + err.message);
+      }
+
       setDownloadProgress(null);
       setProcessingStage('');
       setDownloadingQuality(null);
@@ -503,6 +590,8 @@ const CreateShortPage = () => {
       const response = await axios.post('/api/youtube/detect-qa', {
         id: downloadId,
         youtubeUrl
+      }, {
+        timeout: 300000  // 5 minute timeout for Q&A detection processing
       });
 
       clearTimeout(progressPolling);
@@ -532,7 +621,41 @@ const CreateShortPage = () => {
       }
     } catch (err) {
       console.error('Error detecting Q&A:', err);
-      setError(err.response?.data?.error || 'Failed to detect Q&A pairs. Please try again.');
+      console.error('Error details:', {
+        message: err.message,
+        response: err.response ? {
+          status: err.response.status,
+          data: err.response.data,
+          statusText: err.response.statusText
+        } : 'No response object',
+        isAxiosError: axios.isAxiosError ? axios.isAxiosError(err) : 'Unknown'
+      });
+
+      if (err.response && err.response.data) {
+        if (typeof err.response.data === 'object' && err.response.data.suggestions) {
+          // Display suggestions to help user fix the URL
+          const suggestionsText = Array.isArray(err.response.data.suggestions)
+            ? err.response.data.suggestions.join('\n• ')
+            : String(err.response.data.suggestions);
+          setError(`Invalid YouTube URL. Suggestions:\n• ${suggestionsText}`);
+        } else if (typeof err.response.data === 'object' && err.response.data.error) {
+          // Display the server error message
+          setError(String(err.response.data.error));
+        } else if (typeof err.response.data === 'string') {
+          // If the response is just a string, display it
+          setError(err.response.data);
+        } else {
+          // Default error message
+          setError('Failed to detect Q&A pairs. Please try again.');
+        }
+      } else if (err.request) {
+        // Network error - no response received
+        setError('Network error: Could not connect to server. Please check your internet connection.');
+      } else {
+        // Something else happened
+        setError('Failed to detect Q&A pairs. Please try again.');
+      }
+
       setQaPairs([]);
       setDownloadProgress(null);
       setProcessingStage('');

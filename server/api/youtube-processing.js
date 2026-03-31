@@ -87,11 +87,94 @@ function runYtDlp(args, onProgress) {
   });
 }
 
-// Validate YouTube URL
+// Enhanced function to validate and normalize YouTube URLs
 function isValidYouTubeUrl(url) {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
-  const match = url.match(regExp);
-  return match && match[2].length === 11;
+  if (!url) return false;
+
+  // Remove leading/trailing whitespace and convert to lowercase for pattern matching
+  const cleanUrl = url.trim();
+
+  // Comprehensive regex to match various YouTube URL formats
+  const youtubeRegex = /(?:https?:\/\/)?(?:www\.)?(?:(?:youtube\.com\/(?:(?:watch\?.*v=)|(?:embed\/)|(?:v\/)|(?:attribution_link\?.*v=)|(?=.*v=))([^#&\?]{11}))|(?:youtu\.be\/([^#&\?]{11})))/;
+
+  const match = cleanUrl.match(youtubeRegex);
+
+  if (match) {
+    // Extract the video ID (either from group 1 or group 2 depending on the URL format)
+    const videoId = match[1] || match[2];
+    return videoId && videoId.length === 11;
+  }
+
+  return false;
+}
+
+// Function to normalize and suggest improvements to YouTube URLs
+function normalizeYouTubeUrl(url) {
+  if (!url) return { isValid: false, normalized: null, suggestions: ['Please enter a YouTube URL'] };
+
+  const cleanUrl = url.trim();
+  const suggestions = [];
+
+  // Check if it's missing the protocol
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+    suggestions.push('Consider adding "https://" to the beginning of the URL');
+  }
+
+  // Check if it's missing "www."
+  if (!cleanUrl.includes('www.') && (cleanUrl.includes('youtube.com') || cleanUrl.includes('youtu.be'))) {
+    const withWww = cleanUrl.replace('youtube.com', 'www.youtube.com').replace('youtu.be', 'www.youtu.be');
+    suggestions.push(`Did you mean: ${withWww}?`);
+  }
+
+  // Check if it's a shortened youtu.be URL
+  if (cleanUrl.includes('youtu.be/')) {
+    const match = cleanUrl.match(/youtu\.be\/([^?&#]*)/);
+    if (match && match[1]) {
+      const videoId = match[1].substring(0, 11); // Get first 11 characters for video ID
+      const expandedUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      suggestions.push(`Expanded URL: ${expandedUrl}`);
+      return {
+        isValid: videoId.length === 11,
+        normalized: expandedUrl,
+        suggestions
+      };
+    }
+  }
+
+  // Check if it's a full YouTube URL
+  if (cleanUrl.includes('youtube.com')) {
+    const patterns = [
+      /v=([^?&#]*)/,
+      /embed\/([^?&#]*)/,
+      /v\/([^?&#]*)/,
+      /attribution_link.*v=([^?&#]*)/
+    ];
+
+    for (const pattern of patterns) {
+      const match = cleanUrl.match(pattern);
+      if (match && match[1]) {
+        const videoId = match[1].substring(0, 11); // Get first 11 characters for video ID
+        const normalized = `https://www.youtube.com/watch?v=${videoId}`;
+        return {
+          isValid: videoId.length === 11,
+          normalized,
+          suggestions
+        };
+      }
+    }
+  }
+
+  // If we get here, it's probably not a valid YouTube URL
+  suggestions.push("This doesn't appear to be a valid YouTube URL. Try formats like:");
+  suggestions.push('- https://www.youtube.com/watch?v=VIDEO_ID');
+  suggestions.push('- https://youtu.be/VIDEO_ID');
+  suggestions.push('- https://www.youtube.com/embed/VIDEO_ID');
+
+  return {
+    isValid: false,
+    normalized: null,
+    suggestions
+  };
 }
 
 // Route to get video info from YouTube URL
@@ -105,7 +188,11 @@ router.post('/info', async (req, res) => {
 
     // Validate YouTube URL
     if (!isValidYouTubeUrl(youtubeUrl)) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      return res.status(400).json({
+        error: 'Invalid YouTube URL',
+        suggestions: normalizationResult.suggestions
+      });
     }
 
     // Get video info using yt-dlp
@@ -144,9 +231,46 @@ router.post('/info', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting YouTube video info:', error);
-    res.status(500).json({
-      error: `Failed to get YouTube video info: ${error.message}`
-    });
+    // Check if this is a validation error vs a processing error
+    if (error.message && (error.message.includes('Invalid URL') || error.message.includes('Unsupported URL'))) {
+      // This might be a URL format issue, provide suggestions
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      res.status(400).json({
+        error: `Failed to get YouTube video info: ${error.message}`,
+        suggestions: normalizationResult.suggestions
+      });
+    } else {
+      // Processing error, but since the URL was validated, provide suggestions anyway
+      // This helps users who have valid-looking URLs but face processing issues
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+
+      // Check if this is specifically a network/processing error that might benefit from URL suggestions
+      const isProcessingError = error.message && (
+        error.message.includes('HTTP Error') ||
+        error.message.includes('Connection') ||
+        error.message.includes('timeout') ||
+        error.message.includes('network') ||
+        error.message.includes('access') ||
+        error.message.includes('geo') ||
+        error.message.includes('region') ||
+        error.message.includes('age') ||
+        error.message.includes('login') ||
+        error.message.toLowerCase().includes('error') // Generic error indicators
+      );
+
+      if (isProcessingError) {
+        res.status(400).json({
+          error: `Failed to get YouTube video info. The URL appears valid but there was an issue processing it: ${error.message}`,
+          suggestions: normalizationResult.suggestions
+        });
+      } else {
+        // For other types of errors, still provide the URL suggestions
+        res.status(500).json({
+          error: `Failed to get YouTube video info: ${error.message}`,
+          suggestions: normalizationResult.suggestions  // Include suggestions even for 500 errors
+        });
+      }
+    }
   }
 });
 
@@ -160,7 +284,11 @@ router.post('/download', async (req, res) => {
     }
 
     if (!isValidYouTubeUrl(youtubeUrl)) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      return res.status(400).json({
+        error: 'Invalid YouTube URL',
+        suggestions: normalizationResult.suggestions
+      });
     }
 
     console.log(`[DOWNLOAD] Starting download for: ${youtubeUrl}`);
@@ -309,9 +437,45 @@ router.post('/download', async (req, res) => {
 
   } catch (error) {
     console.error('Error in YouTube download route:', error);
-    res.status(500).json({
-      error: `Failed to download YouTube video: ${error.message}`
-    });
+    // Check if this is a validation error vs a processing error
+    if (error.message && (error.message.includes('Invalid URL') || error.message.includes('Unsupported URL'))) {
+      // This might be a URL format issue, provide suggestions
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      res.status(400).json({
+        error: `Failed to download YouTube video: ${error.message}`,
+        suggestions: normalizationResult.suggestions
+      });
+    } else {
+      // Processing error, but since the URL was validated, provide suggestions anyway
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+
+      // Check if this is specifically a network/processing error that might benefit from URL suggestions
+      const isProcessingError = error.message && (
+        error.message.includes('HTTP Error') ||
+        error.message.includes('Connection') ||
+        error.message.includes('timeout') ||
+        error.message.includes('network') ||
+        error.message.includes('access') ||
+        error.message.includes('geo') ||
+        error.message.includes('region') ||
+        error.message.includes('age') ||
+        error.message.includes('login') ||
+        error.message.toLowerCase().includes('error') // Generic error indicators
+      );
+
+      if (isProcessingError) {
+        res.status(400).json({
+          error: `Failed to download YouTube video. The URL appears valid but there was an issue processing it: ${error.message}`,
+          suggestions: normalizationResult.suggestions
+        });
+      } else {
+        // For other types of errors, still provide the URL suggestions
+        res.status(500).json({
+          error: `Failed to download YouTube video: ${error.message}`,
+          suggestions: normalizationResult.suggestions  // Include suggestions even for 500 errors
+        });
+      }
+    }
   }
 });
 
@@ -338,7 +502,11 @@ router.post('/detect-qa', async (req, res) => {
 
     // Validate YouTube URL
     if (!isValidYouTubeUrl(youtubeUrl)) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      return res.status(400).json({
+        error: 'Invalid YouTube URL',
+        suggestions: normalizationResult.suggestions
+      });
     }
 
     console.log(`[Q&A] Starting Q&A detection for: ${youtubeUrl}`);
@@ -651,10 +819,48 @@ router.post('/detect-qa', async (req, res) => {
 
   } catch (error) {
     console.error('Error in YouTube Q&A detection:', error);
-    res.status(500).json({
-      error: 'Failed to detect Q&A pairs: ' + error.message,
-      details: error.stack
-    });
+    // Check if this is a validation error vs a processing error
+    if (error.message && (error.message.includes('Invalid URL') || error.message.includes('Unsupported URL'))) {
+      // This might be a URL format issue, provide suggestions
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      res.status(400).json({
+        error: 'Failed to detect Q&A pairs: ' + error.message,
+        suggestions: normalizationResult.suggestions,
+        details: error.stack
+      });
+    } else {
+      // Processing error, but since the URL was validated, provide suggestions anyway
+      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+
+      // Check if this is specifically a network/processing error that might benefit from URL suggestions
+      const isProcessingError = error.message && (
+        error.message.includes('HTTP Error') ||
+        error.message.includes('Connection') ||
+        error.message.includes('timeout') ||
+        error.message.includes('network') ||
+        error.message.includes('access') ||
+        error.message.includes('geo') ||
+        error.message.includes('region') ||
+        error.message.includes('age') ||
+        error.message.includes('login') ||
+        error.message.toLowerCase().includes('error') // Generic error indicators
+      );
+
+      if (isProcessingError) {
+        res.status(400).json({
+          error: 'Failed to detect Q&A pairs. The URL appears valid but there was an issue processing it: ' + error.message,
+          suggestions: normalizationResult.suggestions,
+          details: error.stack
+        });
+      } else {
+        // For other types of errors, still provide the URL suggestions
+        res.status(500).json({
+          error: 'Failed to detect Q&A pairs: ' + error.message,
+          suggestions: normalizationResult.suggestions,  // Include suggestions even for 500 errors
+          details: error.stack
+        });
+      }
+    }
   }
 });
 
@@ -783,3 +989,5 @@ function getChaptersInfo(info) {
 // Export helper functions for testing/use
 module.exports = router;
 module.exports.breakDownLongChapters = breakDownLongChapters;
+module.exports.isValidYouTubeUrl = isValidYouTubeUrl;
+module.exports.normalizeYouTubeUrl = normalizeYouTubeUrl;

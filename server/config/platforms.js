@@ -20,6 +20,11 @@ const PLATFORM_SETTINGS = {
     watermark: {
       position: 'bottom-right',
       opacity: 0.7
+    },
+    oauth: {
+      scopes: ['video.upload', 'publish.video'],
+      authUrl: 'https://www.tiktok.com/login',
+      tokenUrl: 'https://open-api.tiktok.com/oauth/access_token/'
     }
   },
   instagram_reels: {
@@ -40,6 +45,11 @@ const PLATFORM_SETTINGS = {
     watermark: {
       position: 'top-left',
       opacity: 0.7
+    },
+    oauth: {
+      scopes: ['publish_video', 'instagram_basic', 'instagram_content_publish'],
+      authUrl: 'https://api.instagram.com/oauth/authorize',
+      tokenUrl: 'https://api.instagram.com/oauth/access_token'
     }
   },
   youtube_shorts: {
@@ -60,6 +70,11 @@ const PLATFORM_SETTINGS = {
     watermark: {
       position: 'center-bottom',
       opacity: 0.5
+    },
+    oauth: {
+      scopes: ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube'],
+      authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenUrl: 'https://oauth2.googleapis.com/token'
     }
   },
   instagram_square: {
@@ -80,6 +95,11 @@ const PLATFORM_SETTINGS = {
     watermark: {
       position: 'top-center',
       opacity: 0.7
+    },
+    oauth: {
+      scopes: ['publish_video', 'instagram_basic', 'instagram_content_publish'],
+      authUrl: 'https://api.instagram.com/oauth/authorize',
+      tokenUrl: 'https://api.instagram.com/oauth/access_token'
     }
   },
   youtube_regular: {
@@ -100,6 +120,11 @@ const PLATFORM_SETTINGS = {
     watermark: {
       position: 'bottom-right',
       opacity: 0.7
+    },
+    oauth: {
+      scopes: ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube'],
+      authUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenUrl: 'https://oauth2.googleapis.com/token'
     }
   }
 };
@@ -151,8 +176,19 @@ const validateVideoSettings = (platformName, videoSettings) => {
   return { isValid: true, errors: [] };
 };
 
+// Helper function to get OAuth configuration for a platform
+const getOAuthConfig = (platformName) => {
+  const platform = getPlatformSettings(platformName);
+  if (!platform || !platform.oauth) {
+    return null;
+  }
+
+  return platform.oauth;
+};
+
 module.exports = {
   PLATFORM_SETTINGS,
   getPlatformSettings,
-  validateVideoSettings
+  validateVideoSettings,
+  getOAuthConfig
 };

@@ -6,9 +6,62 @@ const PythonAIWrapper = require('../ai/python-wrapper');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { promisify } = require('util');
+const execAsync = promisify(require('child_process').exec);
+const ClipAnalytics = require('../analytics/clip-analytics');
+const PresetManager = require('../utils/presets');
+const ContentSuggestions = require('../ai/content-suggestions');
+const PlatformOptimizer = require('../utils/platform-optimizer');
 
 const videoProcessor = new VideoProcessor();
 const pythonAI = new PythonAIWrapper();
+const clipAnalytics = new ClipAnalytics();
+const presetManager = new PresetManager();
+const contentSuggestions = new ContentSuggestions();
+const platformOptimizer = new PlatformOptimizer();
+
+/**
+ * Helper function to download a file from URL to local temp directory
+ */
+async function downloadFile(url, extension = '') {
+  const tempDir = path.join(__dirname, '../../temp');
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
+
+  // Create a unique filename based on URL
+  const fileName = `temp_${Date.now()}_${path.basename(url, path.extname(url))}${extension}`;
+  const tempPath = path.join(tempDir, fileName);
+
+  try {
+    // Use curl to download the file
+    await execAsync(`curl -o "${tempPath}" "${url}"`);
+    return tempPath;
+  } catch (error) {
+    console.error(`Failed to download file from ${url}:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Helper function to get temporary watermark path
+ */
+async function downloadWatermark(url) {
+  if (url.startsWith('http')) {
+    return await downloadFile(url, '.png');
+  }
+  return url; // Assume it's a local file path
+}
+
+/**
+ * Helper function to get temporary music path
+ */
+async function downloadMusic(url) {
+  if (url.startsWith('http')) {
+    return await downloadFile(url, '.mp3');
+  }
+  return url; // Assume it's a local file path
+}
 
 /**
  * Generate Hormozi-style subtitles for a video clip.
@@ -669,7 +722,28 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
 
 // Endpoint to export Q&A clips as ZIP or individual files
 router.post('/video/export-clips', async (req, res) => {
-  const { videoPath, segments, format = 'original', addSubtitles = false, addEndFrame = false } = req.body;
+  const {
+    videoPath,
+    segments,
+    format = 'original',
+    addSubtitles = false,
+    addEndFrame = false,
+    // Branding options
+    watermarkUrl = '',
+    watermarkPosition = 'bottom-right',
+    watermarkSize = 15,
+    // Audio options
+    normalizeAudio = false,
+    volumeAdjustment = 0,
+    bgMusicUrl = '',
+    bgMusicVolume = 30,
+    // Quality options
+    resolution = '1080p',
+    bitrate = 10,
+    // CTA options
+    ctaText = 'Watch full video',
+    addEndScreen = true
+  } = req.body;
 
   console.log('Export request received:', { videoPath, segments: segments?.length, format, addSubtitles, addEndFrame });
 
@@ -842,13 +916,81 @@ router.post('/video/export-clips', async (req, res) => {
           console.log(`  Subtitles: ${assPathAbs}`);
         }
 
+        // Add watermark if URL is provided
+        if (watermarkUrl) {
+          // Download watermark to temporary location or use direct URL
+          const watermarkPositionMap = {
+            'top-left': 'x=10:y=10',
+            'top-right': `x=main_w-overlay_w-10:y=10`,
+            'bottom-left': `x=10:y=main_h-overlay_h-10`,
+            'bottom-right': `x=main_w-overlay_w-10:y=main_h-overlay_h-10`,
+            'center': '(main_w-overlay_w)/2:(main_h-overlay_h)/2'
+          };
+
+          const watermarkFilter = `[in][1]overlay=${watermarkPositionMap[watermarkPosition]}[out]`;
+          filters.push(watermarkFilter);
+          console.log(`  Watermark: ${watermarkUrl} at ${watermarkPosition}`);
+        }
+
         // Apply combined filters if any
         let ffmpegCmd;
+
+        // Determine resolution dimensions
+        const resolutionMap = {
+          '720p': '1280x720',
+          '1080p': '1920x1080',
+          '1440p': '2560x1440',
+          '2160p': '3840x2160'
+        };
+        const [width, height] = resolutionMap[resolution]?.split('x') || [1920, 1080];
+
         if (filters.length > 0) {
           const filterString = filters.join(',');
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -vf "${filterString}" -c:v libx264 -c:a aac -y "${baseOutputPath}"`;
+          if (watermarkUrl) {
+            // For watermark, we need a more complex command with input for the watermark
+            ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -filter_complex "[0:v]${filterString.substring(0, filterString.lastIndexOf(','))};[0:a]volume=${1 + (volumeAdjustment/20)}[aout]" -map "[out]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
+          } else {
+            // For regular filters without watermark
+            ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -vf "${filterString}" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -af "volume=${1 + (volumeAdjustment/20)}" -c:a aac -y "${baseOutputPath}"`;
+          }
         } else {
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -c:v libx264 -c:a aac -y "${baseOutputPath}"`;
+          // No filters case
+          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -af "volume=${1 + (volumeAdjustment/20)}" -c:a aac -y "${baseOutputPath}"`;
+        }
+
+        // Add background music if provided
+        if (bgMusicUrl) {
+          // For background music, we need a more complex filter chain
+          const volumeRatio = bgMusicVolume / 100;
+          const mainVolume = 1 - (volumeRatio / 2); // Lower main audio when adding bg music
+
+          const complexFilter = `[0:a]volume=${mainVolume}[main_audio];[1:a]volume=${volumeRatio}[bg_audio];[main_audio][bg_audio]amix=inputs=2:duration=first[aout];[0:v]${watermarkUrl ? `[1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}` : ''}[vout]`;
+
+          if (filters.length > 0) {
+            // If there are video filters, we need to integrate them properly
+            let videoFilters = filterString;
+            if (watermarkUrl) {
+              // Replace the watermark filter in the existing chain
+              videoFilters = filterString.replace(/overlay=[^,]+/, `overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}`);
+            }
+
+            // Create a more sophisticated command for all features
+            if (watermarkUrl) {
+              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -i "${bgMusicUrl}" -filter_complex "[0:v]${videoFilters.substring(0, videoFilters.indexOf('overlay') > 0 ? videoFilters.indexOf('overlay') : videoFilters.length)}[filtered_v];[filtered_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${mainVolume}[main_a];[2:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
+            } else {
+              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${bgMusicUrl}" -filter_complex "[0:v]${videoFilters}[vout];[0:a]volume=${mainVolume}[main_a];[1:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
+            }
+          } else {
+            // No video filters, just add watermark and audio
+            if (watermarkUrl) {
+              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -i "${bgMusicUrl}" -filter_complex "[0:v]scale=${width}:${height}[scaled_v];[scaled_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${mainVolume}[main_a];[2:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
+            } else {
+              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${bgMusicUrl}" -filter_complex "[0:v]scale=${width}:${height}[vout];[0:a]volume=${mainVolume}[main_a];[1:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
+            }
+          }
+        } else if (watermarkUrl && filters.length === 0) {
+          // Just watermark and scaling without other filters
+          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -filter_complex "[0:v]scale=${width}:${height}[scaled_v];[scaled_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${1 + (volumeAdjustment/20)}[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
         }
 
         console.log(`Exporting clip ${i + 1}/${segments.length}:`);
@@ -871,10 +1013,10 @@ router.post('/video/export-clips', async (req, res) => {
 
       // Add end frame CTA if requested
       let finalOutputPath = baseOutputPath;
-      if (addEndFrame) {
+      if (addEndScreen) {
         finalOutputPath = baseOutputPath.replace('.mp4', '-with-cta.mp4');
         console.log(`Adding end frame CTA to clip ${i + 1}/${segments.length}...`);
-        const ctaAdded = await addEndFrameToClip(baseOutputPath, finalOutputPath);
+        const ctaAdded = await addEndFrameToClip(baseOutputPath, finalOutputPath, ctaText);
         if (ctaAdded) {
           // Remove original clip without CTA
           try {
@@ -907,6 +1049,25 @@ router.post('/video/export-clips', async (req, res) => {
 
     // If single clip, return it directly
     if (clipPaths.length === 1) {
+      // Record clip creation analytics
+      clipAnalytics.recordClipCreation({
+        clipId: clipPaths[0].name,
+        videoPath: videoPath,
+        segments: segments,
+        format: format,
+        hasSubtitles: addSubtitles,
+        hasEndScreen: addEndScreen,
+        createdAt: new Date().toISOString(),
+        customization: {
+          watermarkUrl: watermarkUrl,
+          watermarkPosition: watermarkPosition,
+          normalizeAudio: normalizeAudio,
+          exportResolution: exportResolution,
+          exportBitrate: exportBitrate,
+          addEndScreen: addEndScreen
+        }
+      });
+
       res.json({
         success: true,
         downloadUrl: `/temp/exports/${clipPaths[0].name}`,
@@ -1099,6 +1260,501 @@ podcastRouter.post('/detect', podcastUpload.single('video'), async (req, res) =>
     } catch (err) {
       console.error('Error deleting uploaded file:', err);
     }
+  }
+});
+
+// Endpoint to generate customized thumbnails
+router.post('/video/generate-thumbnail', async (req, res) => {
+  const {
+    videoPath,
+    timestamp = 10, // Default to 10 seconds
+    title = '',
+    template = 'none',
+    watermarkUrl = '',
+    watermarkPosition = 'bottom-right',
+    watermarkSize = 15
+  } = req.body;
+
+  console.log('Thumbnail generation request:', { videoPath, timestamp, title, template, watermarkUrl });
+
+  if (!videoPath) {
+    return res.status(400).json({ error: 'Missing required parameter: videoPath' });
+  }
+
+  try {
+    // Validate that video file exists
+    let actualVideoPath = videoPath;
+    const pathsToTry = [
+      videoPath,
+      path.join(__dirname, '../../temp/uploads', path.basename(videoPath)),
+      path.join(__dirname, '../../temp/downloads', path.basename(videoPath)),
+      path.join(__dirname, '..', 'temp', 'uploads', path.basename(videoPath)),
+      path.join(__dirname, '..', 'temp', 'downloads', path.basename(videoPath))
+    ];
+
+    for (const testPath of pathsToTry) {
+      try {
+        await fs.promises.access(testPath);
+        actualVideoPath = testPath;
+        console.log('Found source file at:', actualVideoPath);
+        break;
+      } catch (err) {
+        console.log('File not found at:', testPath);
+      }
+    }
+
+    try {
+      await fs.promises.access(actualVideoPath);
+    } catch (err) {
+      console.error('Source file not found at any location. Tried:', pathsToTry);
+      return res.status(400).json({
+        error: 'Source video file not found. The file may have expired or been deleted.',
+        requestedPath: videoPath,
+        triedPaths: pathsToTry
+      });
+    }
+
+    // Create temp directory for exports if it doesn't exist
+    const exportDir = path.join(__dirname, '../../temp/thumbnails');
+    if (!fs.existsSync(exportDir)) {
+      fs.mkdirSync(exportDir, { recursive: true });
+    }
+
+    const timestampStr = Date.now();
+    const thumbnailPath = path.join(exportDir, `thumbnail-${timestampStr}.jpg`);
+
+    // Build FFmpeg command based on template
+    let ffmpegCmd = '';
+
+    if (template === 'overlay' && title) {
+      // Add text overlay to the thumbnail
+      const titleEncoded = title.replace(/'/g, "'\\''"); // Properly escape quotes for FFmpeg
+      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -vf "drawtext=fontfile=Arial.ttf:text='${titleEncoded}':x=10:y=h-th-10:fontsize=24:fontcolor=white@0.8:box=1:boxcolor=black@0.5" -y "${thumbnailPath}"`;
+    } else if (template === 'border') {
+      // Add a border/frame around the thumbnail
+      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -vf "pad=iw+40:ih+40:20:20:black@0.8" -y "${thumbnailPath}"`;
+    } else if (template === 'split') {
+      // This would be more complex, just using a basic overlay for now
+      const titleEncoded = title.replace(/'/g, "'\\''");
+      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -vf "drawtext=fontfile=Arial.ttf:text='${titleEncoded}':x=10:y=10:fontsize=24:fontcolor=white@0.8:box=1:boxcolor=black@0.5" -y "${thumbnailPath}"`;
+    } else {
+      // Default: just extract the frame at the given timestamp
+      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -y "${thumbnailPath}"`;
+    }
+
+    console.log('Generating thumbnail with command:', ffmpegCmd.substring(0, 200) + '...');
+
+    await new Promise((resolve, reject) => {
+      const { exec } = require('child_process');
+      exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+        if (err) {
+          console.error('Thumbnail generation error:', err);
+          console.error('FFmpeg stderr:', stderr);
+          reject(err);
+        } else {
+          console.log('Thumbnail generated successfully:', thumbnailPath);
+          resolve();
+        }
+      });
+    });
+
+    // If watermark is specified, apply it to the thumbnail
+    if (watermarkUrl) {
+      const watermarkedThumbnailPath = thumbnailPath.replace('.jpg', '_watermarked.jpg');
+
+      // Download watermark if it's a URL
+      const watermarkPath = await downloadWatermark(watermarkUrl);
+
+      // Determine watermark position coordinates
+      const watermarkPositions = {
+        'top-left': 'x=10:y=10',
+        'top-right': 'x=W-w-10:y=10',
+        'bottom-left': 'x=10:y=H-h-10',
+        'bottom-right': 'x=W-w-10:y=H-h-10',
+        'center': '(W-w)/2:(H-h)/2'
+      };
+
+      const position = watermarkPositions[watermarkPosition] || watermarkPositions['bottom-right'];
+      const watermarkCmd = `ffmpeg -i "${thumbnailPath}" -i "${watermarkPath}" -filter_complex "[0:v][1:v]overlay=${position}" -y "${watermarkedThumbnailPath}"`;
+
+      await new Promise((resolve, reject) => {
+        const { exec } = require('child_process');
+        exec(watermarkCmd, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+          if (err) {
+            console.error('Watermark application error:', err);
+            console.error('FFmpeg stderr:', stderr);
+            // Continue without watermark if it fails
+            resolve();
+          } else {
+            console.log('Watermark applied to thumbnail');
+            // Replace original thumbnail with watermarked one
+            fs.renameSync(watermarkedThumbnailPath, thumbnailPath);
+            // Clean up temporary watermark file if needed
+            if (watermarkPath !== watermarkUrl) {
+              fs.unlinkSync(watermarkPath);
+            }
+            resolve();
+          }
+        });
+      });
+    }
+
+    res.json({
+      success: true,
+      thumbnailUrl: `/temp/thumbnails/${path.basename(thumbnailPath)}`,
+      message: 'Thumbnail generated successfully'
+    });
+
+  } catch (error) {
+    console.error('Thumbnail generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate thumbnail: ' + error.message,
+      details: error.stack
+    });
+  }
+});
+
+// Analytics endpoints
+router.post('/analytics/track-clip-creation', async (req, res) => {
+  try {
+    const clipInfo = req.body;
+    clipAnalytics.recordClipCreation(clipInfo);
+
+    res.json({
+      success: true,
+      message: 'Clip creation tracked successfully'
+    });
+  } catch (error) {
+    console.error('Analytics tracking error:', error);
+    res.status(500).json({
+      error: 'Failed to track analytics'
+    });
+  }
+});
+
+router.post('/analytics/track-clip-engagement', async (req, res) => {
+  try {
+    const { clipId, action } = req.body;
+    clipAnalytics.recordClipEngagement(clipId, action);
+
+    res.json({
+      success: true,
+      message: 'Clip engagement tracked successfully'
+    });
+  } catch (error) {
+    console.error('Analytics tracking error:', error);
+    res.status(500).json({
+      error: 'Failed to track analytics'
+    });
+  }
+});
+
+router.post('/analytics/track-clip-share', async (req, res) => {
+  try {
+    const { clipId, platform } = req.body;
+    clipAnalytics.recordClipShare(clipId, platform);
+
+    res.json({
+      success: true,
+      message: 'Clip share tracked successfully'
+    });
+  } catch (error) {
+    console.error('Analytics tracking error:', error);
+    res.status(500).json({
+      error: 'Failed to track analytics'
+    });
+  }
+});
+
+router.get('/analytics/summary', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const summary = clipAnalytics.getAnalyticsSummary(days);
+
+    res.json({
+      success: true,
+      summary
+    });
+  } catch (error) {
+    console.error('Analytics summary error:', error);
+    res.status(500).json({
+      error: 'Failed to get analytics summary'
+    });
+  }
+});
+
+router.get('/analytics/clip/:clipId', async (req, res) => {
+  try {
+    const clipId = req.params.clipId;
+    const analytics = clipAnalytics.getClipAnalytics(clipId);
+
+    res.json({
+      success: true,
+      analytics
+    });
+  } catch (error) {
+    console.error('Clip analytics error:', error);
+    res.status(500).json({
+      error: 'Failed to get clip analytics'
+    });
+  }
+});
+
+// Presets endpoints
+router.get('/presets', (req, res) => {
+  try {
+    const presets = presetManager.getAllPresets();
+    res.json({
+      success: true,
+      presets
+    });
+  } catch (error) {
+    console.error('Error getting presets:', error);
+    res.status(500).json({
+      error: 'Failed to get presets'
+    });
+  }
+});
+
+router.get('/presets/:presetId', (req, res) => {
+  try {
+    const presetId = req.params.presetId;
+    const preset = presetManager.getPreset(presetId);
+
+    if (!preset) {
+      return res.status(404).json({
+        success: false,
+        error: 'Preset not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      preset
+    });
+  } catch (error) {
+    console.error('Error getting preset:', error);
+    res.status(500).json({
+      error: 'Failed to get preset'
+    });
+  }
+});
+
+router.post('/presets', (req, res) => {
+  try {
+    const { presetId, name, description, settings } = req.body;
+
+    if (!presetId || !name || !settings) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: presetId, name, settings'
+      });
+    }
+
+    const result = presetManager.createPreset(presetId, name, description, settings);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Preset created successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    console.error('Error creating preset:', error);
+    res.status(500).json({
+      error: 'Failed to create preset'
+    });
+  }
+});
+
+router.delete('/presets/:presetId', (req, res) => {
+  try {
+    const presetId = req.params.presetId;
+    const result = presetManager.deletePreset(presetId);
+
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'Preset deleted successfully'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting preset:', error);
+    res.status(500).json({
+      error: 'Failed to delete preset'
+    });
+  }
+});
+
+router.post('/presets/apply', (req, res) => {
+  try {
+    const { settings, presetId } = req.body;
+
+    const updatedSettings = presetManager.applyPreset(settings, presetId);
+
+    res.json({
+      success: true,
+      settings: updatedSettings
+    });
+  } catch (error) {
+    console.error('Error applying preset:', error);
+    res.status(500).json({
+      error: 'Failed to apply preset'
+    });
+  }
+});
+
+// Content Suggestions endpoints
+router.get('/suggestions/content-types', (req, res) => {
+  try {
+    const contentTypes = contentSuggestions.getContentTypes();
+
+    res.json({
+      success: true,
+      contentTypes
+    });
+  } catch (error) {
+    console.error('Error getting content types:', error);
+    res.status(500).json({
+      error: 'Failed to get content types'
+    });
+  }
+});
+
+router.post('/suggestions/optimize-content', (req, res) => {
+  try {
+    const { contentType, videoDuration } = req.body;
+
+    if (!contentType) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: contentType'
+      });
+    }
+
+    const suggestions = contentSuggestions.getSuggestions(contentType, videoDuration);
+
+    res.json({
+      success: true,
+      suggestions
+    });
+  } catch (error) {
+    console.error('Error getting content suggestions:', error);
+    res.status(500).json({
+      error: 'Failed to get content suggestions'
+    });
+  }
+});
+
+router.post('/suggestions/analyze-performance', (req, res) => {
+  try {
+    const metrics = req.body;
+
+    const improvementSuggestions = contentSuggestions.analyzePerformanceMetrics(metrics);
+
+    res.json({
+      success: true,
+      improvementSuggestions
+    });
+  } catch (error) {
+    console.error('Error analyzing performance:', error);
+    res.status(500).json({
+      error: 'Failed to analyze performance'
+    });
+  }
+});
+
+// Platform Optimization endpoints
+router.get('/platforms', (req, res) => {
+  try {
+    const platforms = platformOptimizer.getSupportedPlatforms();
+
+    res.json({
+      success: true,
+      platforms
+    });
+  } catch (error) {
+    console.error('Error getting platforms:', error);
+    res.status(500).json({
+      error: 'Failed to get platforms'
+    });
+  }
+});
+
+router.get('/platforms/:platform', (req, res) => {
+  try {
+    const platform = req.params.platform;
+    const config = platformOptimizer.getPlatformConfig(platform);
+
+    res.json({
+      success: true,
+      config
+    });
+  } catch (error) {
+    console.error('Error getting platform config:', error);
+    res.status(500).json({
+      error: 'Failed to get platform config'
+    });
+  }
+});
+
+router.post('/platforms/optimize-settings', (req, res) => {
+  try {
+    const { platforms, originalSettings } = req.body;
+
+    if (!platforms || !Array.isArray(platforms)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required field: platforms (array)'
+      });
+    }
+
+    const optimized = platformOptimizer.getOptimizedSettings(platforms, originalSettings);
+
+    res.json({
+      success: true,
+      optimized
+    });
+  } catch (error) {
+    console.error('Error optimizing settings for platforms:', error);
+    res.status(500).json({
+      error: 'Failed to optimize settings for platforms'
+    });
+  }
+});
+
+router.post('/platforms/validate', (req, res) => {
+  try {
+    const { platform, settings } = req.body;
+
+    if (!platform || !settings) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields: platform, settings'
+      });
+    }
+
+    const validation = platformOptimizer.validatePlatformSettings(platform, settings);
+
+    res.json({
+      success: true,
+      validation
+    });
+  } catch (error) {
+    console.error('Error validating platform settings:', error);
+    res.status(500).json({
+      error: 'Failed to validate platform settings'
+    });
   }
 });
 
