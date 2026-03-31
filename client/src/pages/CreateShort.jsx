@@ -491,6 +491,14 @@ const CreateShortPage = () => {
         // Set the video path for export functionality
         setVideoPathForExport(response.data.videoPath);
 
+        // Update videoInfo with the generated thumbnail
+        if (response.data.thumbnailPath) {
+          setVideoInfo(prev => ({
+            ...prev,
+            thumbnail: response.data.thumbnailPath
+          }));
+        }
+
         // Trigger the download
         handleDownload(response.data.videoPath);
         setDownloadProgress(null);

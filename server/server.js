@@ -95,25 +95,8 @@ app.use('/api/preferences', userPreferencesRoutes);
 app.use('/api/presets', presetsRoutes);
 app.use('/api', publicApiRoutes);
 
-// Serve static files from the React app build (should come AFTER API routes)
-app.use(express.static(path.join(__dirname, '../client/build'), {
-  setHeaders: (res, filepath) => {
-    // Set appropriate MIME types to avoid issues with Safari
-    if (filepath.endsWith('.js')) {
-      res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
-    } else if (filepath.endsWith('.css')) {
-      res.setHeader('Content-Type', 'text/css; charset=UTF-8');
-    } else if (filepath.endsWith('.html')) {
-      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-    }
-
-    // Add security headers that Safari may be stricter about
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-  }
-}));
-
 // Serve output directory for video playback (with download support)
+// MUST come BEFORE React static files route
 app.use('/output', express.static(path.join(__dirname, '../output'), {
   setHeaders: function (res, path, stat) {
     res.set('Content-Disposition', 'inline');
@@ -126,6 +109,7 @@ app.use('/output', express.static(path.join(__dirname, '../output'), {
 }));
 
 // Serve temp directory for thumbnails
+// MUST come BEFORE React static files route
 app.use('/temp', express.static(path.join(__dirname, '../temp'), {
   setHeaders: function (res, path, stat) {
     res.set('Access-Control-Allow-Origin', '*');
@@ -140,6 +124,24 @@ app.use('/temp', express.static(path.join(__dirname, '../temp'), {
     } else if (path.endsWith('.mp4')) {
       res.set('Content-Type', 'video/mp4');
     }
+  }
+}));
+
+// Serve static files from the React app build (should come AFTER API routes and media routes)
+app.use(express.static(path.join(__dirname, '../client/build'), {
+  setHeaders: (res, filepath) => {
+    // Set appropriate MIME types to avoid issues with Safari
+    if (filepath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+    } else if (filepath.endsWith('.css')) {
+      res.setHeader('Content-Type', 'text/css; charset=UTF-8');
+    } else if (filepath.endsWith('.html')) {
+      res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+    }
+
+    // Add security headers that Safari may be stricter about
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
   }
 }));
 
