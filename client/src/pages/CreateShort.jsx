@@ -999,7 +999,7 @@ const CreateShortPage = () => {
   };
 
   return (
-    <div className="create-short-page" ref={containerRef}>
+    <div className={`create-short-page ${darkMode ? 'dark-mode' : ''}`} ref={containerRef}>
       {isDragging && (
         <div className="drag-overlay">
           <div className="drag-indicator">
