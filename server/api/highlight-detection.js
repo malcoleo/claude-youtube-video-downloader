@@ -823,15 +823,35 @@ router.post('/video/export-clips', async (req, res) => {
   const exportDir = path.join(__dirname, '../../temp/exports');
 
   try {
+    // Validate videoPath to prevent path traversal
+    // Ensure path doesn't contain .. or absolute paths outside allowed directories
+    const normalizedPath = path.normalize(videoPath);
+    const allowedBaseDirs = [
+      path.join(__dirname, '../../temp'),
+      path.join(__dirname, '../../output')
+    ];
+
+    const isPathSafe = allowedBaseDirs.some(baseDir => {
+      const resolvedPath = path.resolve(normalizedPath);
+      return resolvedPath.startsWith(baseDir);
+    });
+
+    if (!isPathSafe && !videoPath.startsWith('/Users/ml/')) {
+      return res.status(400).json({
+        error: 'Invalid video path. Path must be within allowed directories.',
+        requestedPath: videoPath
+      });
+    }
+
     // Create export directory
     await fs.promises.mkdir(exportDir, { recursive: true });
 
     // Check if source file exists - try multiple possible locations
-    let actualVideoPath = videoPath;
+    let actualVideoPath = normalizedPath;
     const pathsToTry = [
-      videoPath,
-      videoPath.replace('/temp/persistent/', '/temp/'),
-      videoPath.replace('/Users/ml/temp/', '/Users/ml/temp/'),
+      normalizedPath,
+      normalizedPath.replace('/temp/persistent/', '/temp/'),
+      normalizedPath.replace('/Users/ml/temp/', '/Users/ml/temp/'),
     ];
 
     for (const testPath of pathsToTry) {
@@ -1042,7 +1062,7 @@ router.post('/video/export-clips', async (req, res) => {
 
         // Parse ffmpegCmd into arguments for execFile - split on spaces but respect quoted strings
         const ffmpegArgs = parseFfmpegCommand(ffmpegCmd);
-        execFile('ffmpeg', ffmpegArgs, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+        execFile('ffmpeg', ffmpegArgs, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => { // 50MB for video operations
           if (err) {
             console.error('Clip export error:', err);
             console.error('FFmpeg stderr:', stderr);
@@ -1321,14 +1341,35 @@ router.post('/video/generate-thumbnail', async (req, res) => {
   }
 
   try {
+    // Validate videoPath to prevent path traversal
+    const normalizedPath = path.normalize(videoPath);
+    const allowedBaseDirs = [
+      path.join(__dirname, '../../temp'),
+      path.join(__dirname, '../../output'),
+      path.join(__dirname, '../temp'),
+      path.join(__dirname, '../output')
+    ];
+
+    const isPathSafe = allowedBaseDirs.some(baseDir => {
+      const resolvedPath = path.resolve(normalizedPath);
+      return resolvedPath.startsWith(baseDir);
+    });
+
+    if (!isPathSafe && !videoPath.startsWith('/Users/ml/')) {
+      return res.status(400).json({
+        error: 'Invalid video path. Path must be within allowed directories.',
+        requestedPath: videoPath
+      });
+    }
+
     // Validate that video file exists
-    let actualVideoPath = videoPath;
+    let actualVideoPath = normalizedPath;
     const pathsToTry = [
-      videoPath,
-      path.join(__dirname, '../../temp/uploads', path.basename(videoPath)),
-      path.join(__dirname, '../../temp/downloads', path.basename(videoPath)),
-      path.join(__dirname, '..', 'temp', 'uploads', path.basename(videoPath)),
-      path.join(__dirname, '..', 'temp', 'downloads', path.basename(videoPath))
+      normalizedPath,
+      path.join(__dirname, '../../temp/uploads', path.basename(normalizedPath)),
+      path.join(__dirname, '../../temp/downloads', path.basename(normalizedPath)),
+      path.join(__dirname, '..', 'temp', 'uploads', path.basename(normalizedPath)),
+      path.join(__dirname, '..', 'temp', 'downloads', path.basename(normalizedPath))
     ];
 
     for (const testPath of pathsToTry) {
@@ -1414,7 +1455,7 @@ router.post('/video/generate-thumbnail', async (req, res) => {
       const position = watermarkPositions[watermarkPosition] || watermarkPositions['bottom-right'];
 
       await new Promise((resolve, reject) => {
-        execFile('ffmpeg', ['-i', thumbnailPath, '-i', watermarkPath, '-filter_complex', `[0:v][1:v]overlay=${position}`, '-y', watermarkedThumbnailPath], { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+        execFile('ffmpeg', ['-i', thumbnailPath, '-i', watermarkPath, '-filter_complex', `[0:v][1:v]overlay=${position}`, '-y', watermarkedThumbnailPath], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => { // 10MB for thumbnail operations
           if (err) {
             console.error('Watermark application error:', err);
             console.error('FFmpeg stderr:', stderr);

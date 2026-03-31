@@ -9,6 +9,13 @@ const { PLATFORM_SETTINGS } = require('../config/platforms');
 
 const videoProcessor = new VideoProcessor();
 
+// Allowed MIME types and extensions for uploaded files
+const ALLOWED_MIME_TYPES = [
+  'video/mp4', 'video/quicktime', 'video/x-msvideo', 'video/x-matroska', 'video/webm',
+  'audio/mp4', 'audio/mpeg', 'audio/wav', 'audio/x-wav', 'audio/ogg'
+];
+const ALLOWED_EXTENSIONS = ['.mp4', '.mov', '.avi', '.wmv', '.mkv', '.webm', '.mp3', '.wav', '.ogg'];
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -16,22 +23,31 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    const ext = path.extname(file.originalname).toLowerCase();
+    // Validate extension server-side
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return cb(new Error('Invalid file extension!'), false);
+    }
+    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
   }
 });
 
 const upload = multer({
   storage: storage,
   fileFilter: function (req, file, cb) {
-    // Accept only video files
-    if (file.mimetype.startsWith('video/')) {
+    // Accept video and audio files with validated MIME types
+    const isValidMime = ALLOWED_MIME_TYPES.includes(file.mimetype) ||
+                        (file.mimetype.startsWith('video/') && !file.mimetype.includes('stream')) ||
+                        (file.mimetype.startsWith('audio/') && !file.mimetype.includes('stream'));
+
+    if (isValidMime) {
       cb(null, true);
     } else {
-      cb(new Error('Only video files are allowed!'), false);
+      cb(new Error('Only video and audio files are allowed!'), false);
     }
   },
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
+    fileSize: 500 * 1024 * 1024 // 500MB limit for large video files
   }
 });
 

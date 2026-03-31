@@ -294,13 +294,21 @@ class VideoProcessor {
         maxBuffer: 50 * 1024 * 1024
       }, (err, stdout, stderr) => {
         if (err) {
-          console.error('Face crop detector error:', err);
+          console.error('[FaceCrop] Detection failed:', {
+            videoPath: videoPath.substring(0, 100),
+            startTime,
+            duration,
+            error: err.message,
+            stderr: stderr?.substring(0, 200)
+          });
+          console.warn('[FaceCrop] Falling back to center crop');
           // Fallback to center crop if face detection fails
           resolve({
             cropX: null, // null = center crop
             cropY: null,
             speakerPosition: 'center',
-            ffmpegFilter: null
+            ffmpegFilter: null,
+            fallbackReason: 'detection_error'
           });
           return;
         }
@@ -309,12 +317,18 @@ class VideoProcessor {
           const cropParams = JSON.parse(stdout.trim());
           resolve(cropParams);
         } catch (parseErr) {
-          console.error('Error parsing face crop output:', parseErr);
+          console.error('[FaceCrop] Parse error:', {
+            parseError: parseErr.message,
+            stdout: stdout?.substring(0, 200),
+            stderr: stderr?.substring(0, 200)
+          });
+          console.warn('[FaceCrop] Falling back to center crop');
           resolve({
             cropX: null,
             cropY: null,
             speakerPosition: 'center',
-            ffmpegFilter: null
+            ffmpegFilter: null,
+            fallbackReason: 'parse_error'
           });
         }
       });

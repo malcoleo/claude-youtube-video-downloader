@@ -92,8 +92,9 @@ class PythonAIWrapper {
    * @returns {Promise<object>} Q&A pairs with scores and timestamps
    */
   async detectQAPairs(transcript) {
-    // Write transcript to temp file
-    const tempTranscriptPath = path.join(__dirname, 'temp-transcript.json');
+    // Write transcript to temp file with unique name to avoid race conditions
+    const uniqueId = require('crypto').randomUUID();
+    const tempTranscriptPath = path.join(__dirname, `temp-transcript-${uniqueId}.json`);
     fs.writeFileSync(tempTranscriptPath, JSON.stringify(transcript, null, 2));
 
     try {
