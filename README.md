@@ -50,6 +50,36 @@ A web application that converts long YouTube videos into short, engaging clips o
 - `POST /api/highlights/suggest-segments` - Get AI-suggested segments
 - `POST /api/social/post` - Post video to social media
 - `GET /api/analytics/user/:userId` - Get user analytics
+- `GET /api/preferences/:userId` - Get user preferences
+- `PUT /api/preferences/:userId` - Update user preferences
+- `GET /api/presets/:userId` - Get user presets
+- `POST /api/presets/:userId` - Save a preset
+- `DELETE /api/presets/:userId/:presetId` - Delete a preset
+
+## Security
+
+This application implements multiple security layers to protect against common attacks:
+
+### Command Injection Prevention
+- All subprocess calls use `execFile`/`execFileSync` with argument arrays instead of shell-interpolated strings
+- Prevents attackers from injecting malicious commands via user input
+- Applied in: AI wrapper, highlight detection, face detection
+
+### File Upload Security
+- Server-side validation of MIME types and file extensions
+- Allowlist-based approach (only known-safe video/audio formats accepted)
+- Path traversal protection via normalization and base directory validation
+- Unique UUID generation for temp files prevents race conditions
+
+### API Protection
+- Rate limiting: 100 requests per minute per user on all user-facing APIs
+- Prototype pollution protection via input sanitization
+- Resource exhaustion prevention via reduced buffer limits
+
+### Error Handling
+- Structured error logging that truncates sensitive data
+- Safe fallbacks for AI detection failures
+- Graceful degradation on unexpected inputs
 
 ## Architecture
 
