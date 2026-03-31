@@ -2,7 +2,7 @@
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs').promises;
 const path = require('path');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const PythonAIWrapper = require('../ai/python-wrapper');
 
@@ -289,9 +289,7 @@ class VideoProcessor {
     return new Promise((resolve, reject) => {
       const faceDetectorPath = path.join(__dirname, '../ai/face-crop-detector.py');
 
-      const cmd = `python3 -u "${faceDetectorPath}" "${videoPath}" ${startTime} ${duration}`;
-
-      exec(cmd, {
+      execFile('python3', ['-u', faceDetectorPath, videoPath, String(startTime), String(duration)], {
         encoding: 'utf8',
         maxBuffer: 50 * 1024 * 1024
       }, (err, stdout, stderr) => {

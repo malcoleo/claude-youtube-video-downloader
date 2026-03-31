@@ -6,8 +6,7 @@ const PythonAIWrapper = require('../ai/python-wrapper');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { promisify } = require('util');
-const execAsync = promisify(require('child_process').exec);
+const { execFile } = require('child_process');
 const ClipAnalytics = require('../analytics/clip-analytics');
 const PresetManager = require('../utils/presets');
 const ContentSuggestions = require('../ai/content-suggestions');
@@ -19,6 +18,54 @@ const clipAnalytics = new ClipAnalytics();
 const presetManager = new PresetManager();
 const contentSuggestions = new ContentSuggestions();
 const platformOptimizer = new PlatformOptimizer();
+
+/**
+ * Parse an ffmpeg command string into an argument array for execFile.
+ * This safely splits a shell command string into arguments, respecting quoted strings.
+ * @param {string} cmd - The ffmpeg command string (e.g., "ffmpeg -i input.mp4 -vf filter output.mp4")
+ * @returns {string[]} - Array of arguments (excluding 'ffmpeg' command)
+ */
+function parseFfmpegCommand(cmd) {
+  const args = [];
+  let current = '';
+  let inQuotes = false;
+  let quoteChar = '';
+
+  for (let i = 0; i < cmd.length; i++) {
+    const char = cmd[i];
+    const prevChar = i > 0 ? cmd[i - 1] : null;
+
+    if ((char === '"' || char === "'") && prevChar !== '\\') {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+        quoteChar = '';
+      } else {
+        current += char;
+      }
+    } else if (char === ' ' && !inQuotes) {
+      if (current) {
+        args.push(current);
+        current = '';
+      }
+    } else {
+      current += char;
+    }
+  }
+
+  if (current) {
+    args.push(current);
+  }
+
+  // Remove 'ffmpeg' if it's the first argument
+  if (args[0] === 'ffmpeg') {
+    args.shift();
+  }
+
+  return args;
+}
 
 /**
  * Helper function to download a file from URL to local temp directory
@@ -34,8 +81,16 @@ async function downloadFile(url, extension = '') {
   const tempPath = path.join(tempDir, fileName);
 
   try {
-    // Use curl to download the file
-    await execAsync(`curl -o "${tempPath}" "${url}"`);
+    // Use curl to download the file - use execFile to avoid shell injection
+    await new Promise((resolve, reject) => {
+      execFile('curl', ['-o', tempPath, url], (err, stdout, stderr) => {
+        if (err) {
+          reject(new Error(`curl failed: ${stderr || err.message}`));
+        } else {
+          resolve();
+        }
+      });
+    });
     return tempPath;
   } catch (error) {
     console.error(`Failed to download file from ${url}:`, error.message);
@@ -77,9 +132,7 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath)
 
     console.log('Extracting audio for subtitle transcription...');
     await new Promise((resolve, reject) => {
-      const { exec } = require('child_process');
-      const ffmpegCmd = `ffmpeg -i "${clipVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${tempAudioPath}" -y`;
-      exec(ffmpegCmd, (err, stdout, stderr) => {
+      execFile('ffmpeg', ['-i', clipVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath, '-y'], (err, stdout, stderr) => {
         if (err) {
           console.error('Audio extraction for subtitles:', err);
           reject(err);
@@ -113,12 +166,10 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath)
 
     // Generate ASS subtitles using caption-generator.py
     console.log('Generating Hormozi-style subtitles...');
-    const { exec } = require('child_process');
     const captionGeneratorPath = require('path').join(__dirname, '../ai/caption-generator.py');
 
     await new Promise((resolve, reject) => {
-      const cmd = `python3 "${captionGeneratorPath}" "${tempWordsPath}" "${outputAssPath}"`;
-      exec(cmd, (err, stdout, stderr) => {
+      execFile('python3', ['-u', captionGeneratorPath, tempWordsPath, outputAssPath], (err, stdout, stderr) => {
         if (err) {
           console.error('Caption generator error:', err);
           reject(err);
@@ -153,14 +204,12 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath)
  */
 async function addEndFrameToClip(clipVideoPath, outputVideoPath, ctaText = "Watch full video") {
   try {
-    const { exec } = require('child_process');
     const endFrameCtaPath = require('path').join(__dirname, '../ai/end-frame-cta.py');
 
     console.log(`Adding end frame CTA: "${ctaText}"...`);
 
     await new Promise((resolve, reject) => {
-      const cmd = `python3 "${endFrameCtaPath}" "${clipVideoPath}" "${outputVideoPath}" "${ctaText}"`;
-      exec(cmd, (err, stdout, stderr) => {
+      execFile('python3', ['-u', endFrameCtaPath, clipVideoPath, outputVideoPath, ctaText], (err, stdout, stderr) => {
         if (err) {
           console.error('End frame CTA error:', err);
           reject(err);
@@ -570,9 +619,7 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
 
       // First, check if the file has an audio stream using ffprobe
       const hasAudio = await new Promise((resolve) => {
-        const { exec } = require('child_process');
-        const ffprobeCmd = `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${videoPath}"`;
-        exec(ffprobeCmd, (err, stdout, stderr) => {
+        execFile('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', videoPath], (err, stdout, stderr) => {
           if (err || !stdout.trim()) {
             resolve(false);
           } else {
@@ -593,9 +640,7 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
       audioPath = videoPath.replace(/\.[^.]+$/, '.wav');
 
       await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
-        const ffmpegCmd = `ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`;
-        exec(ffmpegCmd, (err, stdout, stderr) => {
+        execFile('ffmpeg', ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioPath, '-y'], (err, stdout, stderr) => {
           if (err) {
             console.error('FFmpeg audio extraction error:', err);
             reject(err);
@@ -652,10 +697,8 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
         console.log('Generating lower-quality preview video for smooth playback...');
 
         await new Promise((resolve, reject) => {
-          const { exec } = require('child_process');
           // Create 480p preview with lower bitrate for smooth scrubbing
-          const ffmpegCmd = `ffmpeg -i "${videoPath}" -vf "scale=854:480" -c:v libx264 -preset fast -crf 28 -c:a aac -b:a 64k -movflags +faststart "${previewPath}" -y`;
-          exec(ffmpegCmd, (err, stdout, stderr) => {
+          execFile('ffmpeg', ['-i', videoPath, '-vf', 'scale=854:480', '-c:v', 'libx264', '-preset', 'fast', '-crf', '28', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', previewPath, '-y'], (err, stdout, stderr) => {
             if (err) {
               console.error('Preview generation error:', err);
               reject(err);
@@ -886,8 +929,6 @@ router.post('/video/export-clips', async (req, res) => {
 
       // Export clip (with or without subtitles burned in)
       await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
-
         // Build video filter chain
         const filters = [];
 
@@ -999,7 +1040,9 @@ router.post('/video/export-clips', async (req, res) => {
         console.log(`  Duration: ${duration}s`);
         console.log(`  FFmpeg: ${ffmpegCmd.substring(0, 200)}${ffmpegCmd.length > 200 ? '...' : ''}`);
 
-        exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+        // Parse ffmpegCmd into arguments for execFile - split on spaces but respect quoted strings
+        const ffmpegArgs = parseFfmpegCommand(ffmpegCmd);
+        execFile('ffmpeg', ffmpegArgs, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
           if (err) {
             console.error('Clip export error:', err);
             console.error('FFmpeg stderr:', stderr);
@@ -1166,9 +1209,7 @@ podcastRouter.post('/detect', podcastUpload.single('video'), async (req, res) =>
 
       // First, check if the file has an audio stream using ffprobe
       const hasAudio = await new Promise((resolve) => {
-        const { exec } = require('child_process');
-        const ffprobeCmd = `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${videoPath}"`;
-        exec(ffprobeCmd, (err, stdout, stderr) => {
+        execFile('ffprobe', ['-v', 'error', '-select_streams', 'a', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', videoPath], (err, stdout, stderr) => {
           if (err || !stdout.trim()) {
             resolve(false);
           } else {
@@ -1189,9 +1230,7 @@ podcastRouter.post('/detect', podcastUpload.single('video'), async (req, res) =>
       audioPath = videoPath.replace(/\.[^.]+$/, '.wav');
 
       await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
-        const ffmpegCmd = `ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`;
-        exec(ffmpegCmd, (err, stdout, stderr) => {
+        execFile('ffmpeg', ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioPath, '-y'], (err, stdout, stderr) => {
           if (err) {
             console.error('FFmpeg audio extraction error:', err);
             reject(err);
@@ -1323,30 +1362,28 @@ router.post('/video/generate-thumbnail', async (req, res) => {
     const timestampStr = Date.now();
     const thumbnailPath = path.join(exportDir, `thumbnail-${timestampStr}.jpg`);
 
-    // Build FFmpeg command based on template
-    let ffmpegCmd = '';
+    // Build FFmpeg command based on template - use execFile with argument array for safety
+    const ffmpegArgs = ['-ss', String(timestamp), '-i', actualVideoPath, '-vframes', '1'];
 
     if (template === 'overlay' && title) {
-      // Add text overlay to the thumbnail
-      const titleEncoded = title.replace(/'/g, "'\\''"); // Properly escape quotes for FFmpeg
-      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -vf "drawtext=fontfile=Arial.ttf:text='${titleEncoded}':x=10:y=h-th-10:fontsize=24:fontcolor=white@0.8:box=1:boxcolor=black@0.5" -y "${thumbnailPath}"`;
+      // Add text overlay to the thumbnail - sanitize title to prevent filter injection
+      const safeTitle = title.replace(/[:'"]/g, ''); // Remove chars that could break filter syntax
+      ffmpegArgs.push('-vf', `drawtext=fontfile=Arial.ttf:text='${safeTitle}':x=10:y=h-th-10:fontsize=24:fontcolor=white@0.8:box=1:boxcolor=black@0.5`);
     } else if (template === 'border') {
       // Add a border/frame around the thumbnail
-      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -vf "pad=iw+40:ih+40:20:20:black@0.8" -y "${thumbnailPath}"`;
+      ffmpegArgs.push('-vf', 'pad=iw+40:ih+40:20:20:black@0.8');
     } else if (template === 'split') {
       // This would be more complex, just using a basic overlay for now
-      const titleEncoded = title.replace(/'/g, "'\\''");
-      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -vf "drawtext=fontfile=Arial.ttf:text='${titleEncoded}':x=10:y=10:fontsize=24:fontcolor=white@0.8:box=1:boxcolor=black@0.5" -y "${thumbnailPath}"`;
-    } else {
-      // Default: just extract the frame at the given timestamp
-      ffmpegCmd = `ffmpeg -ss ${timestamp} -i "${actualVideoPath}" -vframes 1 -y "${thumbnailPath}"`;
+      const safeTitle = title.replace(/[:'"]/g, '');
+      ffmpegArgs.push('-vf', `drawtext=fontfile=Arial.ttf:text='${safeTitle}':x=10:y=10:fontsize=24:fontcolor=white@0.8:box=1:boxcolor=black@0.5`);
     }
 
-    console.log('Generating thumbnail with command:', ffmpegCmd.substring(0, 200) + '...');
+    ffmpegArgs.push('-y', thumbnailPath);
+
+    console.log('Generating thumbnail with FFmpeg...');
 
     await new Promise((resolve, reject) => {
-      const { exec } = require('child_process');
-      exec(ffmpegCmd, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+      execFile('ffmpeg', ffmpegArgs, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
         if (err) {
           console.error('Thumbnail generation error:', err);
           console.error('FFmpeg stderr:', stderr);
@@ -1375,11 +1412,9 @@ router.post('/video/generate-thumbnail', async (req, res) => {
       };
 
       const position = watermarkPositions[watermarkPosition] || watermarkPositions['bottom-right'];
-      const watermarkCmd = `ffmpeg -i "${thumbnailPath}" -i "${watermarkPath}" -filter_complex "[0:v][1:v]overlay=${position}" -y "${watermarkedThumbnailPath}"`;
 
       await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
-        exec(watermarkCmd, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+        execFile('ffmpeg', ['-i', thumbnailPath, '-i', watermarkPath, '-filter_complex', `[0:v][1:v]overlay=${position}`, '-y', watermarkedThumbnailPath], { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
           if (err) {
             console.error('Watermark application error:', err);
             console.error('FFmpeg stderr:', stderr);

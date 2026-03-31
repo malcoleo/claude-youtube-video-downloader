@@ -2,7 +2,8 @@
 const { PythonShell } = require('python-shell');
 const path = require('path');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execSync, execFile } = require('child_process');
+const { execFileSync } = require('child_process');
 
 class PythonAIWrapper {
   constructor() {
@@ -49,7 +50,7 @@ class PythonAIWrapper {
 
       try {
         console.log(`Transcribing ${audioPath} with whisper.cpp...`);
-        execSync(`whisper-cli ${whisperArgs.join(' ')}`, {
+        execFileSync('whisper-cli', whisperArgs, {
           stdio: ['pipe', 'pipe', 'pipe'],
           maxBuffer: 100 * 1024 * 1024 // 100MB buffer for long transcripts
         });
@@ -59,10 +60,10 @@ class PythonAIWrapper {
           throw new Error(`Whisper JSON output not created at ${jsonOutputPath}`);
         }
 
-        // Convert whisper output to qa-detector format using execSync
+        // Convert whisper output to qa-detector format using execFileSync
         const wordsFlag = includeWordTimestamps ? '--words' : '';
         console.log(`Running whisper-to-qa.py on ${jsonOutputPath}...`);
-        const pythonOutput = execSync(`python3 -u ${this.whisperToQaPath} ${wordsFlag} "${jsonOutputPath}"`, {
+        const pythonOutput = execFileSync('python3', ['-u', this.whisperToQaPath, wordsFlag, jsonOutputPath], {
           encoding: 'utf8',
           maxBuffer: 50 * 1024 * 1024 // 50MB buffer
         });
@@ -97,7 +98,7 @@ class PythonAIWrapper {
 
     try {
       console.log(`Running qa-detector.py on transcript...`);
-      const pythonOutput = execSync(`python3 -u ${this.qaDetectorPath} "${tempTranscriptPath}"`, {
+      const pythonOutput = execFileSync('python3', ['-u', this.qaDetectorPath, tempTranscriptPath], {
         encoding: 'utf8',
         maxBuffer: 50 * 1024 * 1024 // 50MB buffer
       });
@@ -226,10 +227,7 @@ class PythonAIWrapper {
    */
   async detectFaceCrop(videoPath, startTime = 0, duration = 5) {
     return new Promise((resolve, reject) => {
-      const { exec } = require('child_process');
-      const cmd = `python3 -u "${this.faceCropDetectorPath}" "${videoPath}" ${startTime} ${duration}`;
-
-      exec(cmd, {
+      execFile('python3', ['-u', this.faceCropDetectorPath, videoPath, String(startTime), String(duration)], {
         encoding: 'utf8',
         maxBuffer: 50 * 1024 * 1024
       }, (err, stdout, stderr) => {
