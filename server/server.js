@@ -11,6 +11,10 @@ const videoProcessorRoutes = require('./api/video-processor');
 const highlightDetectionRoutes = require('./api/highlight-detection');
 const socialSharingRoutes = require('./api/social-sharing');
 const analyticsRoutes = require('./api/analytics');
+const cmsIntegrationRoutes = require('./api/cms-integration');
+const publicApiRoutes = require('./api/public-api');
+const userPreferencesRoutes = require('./api/user-preferences');
+const presetsRoutes = require('./api/presets');
 
 // Note: highlightDetectionRoutes exports both a router and podcastRouter
 const highlightRouter = highlightDetectionRoutes.router || highlightDetectionRoutes;
@@ -39,7 +43,19 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Serve static files from the React app build
+// API Routes
+app.use('/api/youtube', youtubeProcessingRoutes);
+app.use('/api/video', videoProcessorRoutes);
+app.use('/api/highlights', highlightRouter);
+app.use('/api/podcast', podcastRouter); // Separate router for podcast-specific routes
+app.use('/api/social', socialSharingRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/cms', cmsIntegrationRoutes);
+app.use('/api/preferences', userPreferencesRoutes);
+app.use('/api/presets', presetsRoutes);
+app.use('/api', publicApiRoutes);
+
+// Serve static files from the React app build (should come AFTER API routes)
 app.use(express.static(path.join(__dirname, '../client/build')));
 
 // Serve output directory for video playback (with download support)
@@ -65,14 +81,6 @@ app.get('/download/:filename', (req, res) => {
   res.setHeader('Expires', '0');
   res.download(filePath);
 });
-
-// API Routes
-app.use('/api/youtube', youtubeProcessingRoutes);
-app.use('/api/video', videoProcessorRoutes);
-app.use('/api/highlights', highlightRouter);
-app.use('/api/podcast', podcastRouter); // Separate router for podcast-specific routes
-app.use('/api/social', socialSharingRoutes);
-app.use('/api/analytics', analyticsRoutes);
 
 // Serve the React app for all other routes
 app.get('*', (req, res) => {

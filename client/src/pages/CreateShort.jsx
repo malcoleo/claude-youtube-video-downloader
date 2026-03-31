@@ -1,5 +1,5 @@
 // client/src/pages/CreateShort.jsx
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import ReactPlayer from 'react-player';
 import axios from 'axios';
 import {
@@ -22,8 +22,15 @@ import {
   Moon,
   Sun,
   Trash,
-  Video
+  Video,
+  Keyboard,
+  BookmarkSimple,
+  ClockCounterClockwise,
+  CaretDown
 } from '@phosphor-icons/react';
+import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
+import { useDragAndDrop } from '../hooks/useDragAndDrop';
+import { getCurrentUserId } from '../utils/userUtils';
 
 // eslint-disable-next-line no-unused-vars
 import './CreateShort.css';
@@ -59,6 +66,59 @@ const CreateShortPage = () => {
 
   // Export state
   const [selectedFormat, setSelectedFormat] = useState('tiktok');
+
+  // Customization state
+  const [watermarkUrl, setWatermarkUrl] = useState('');
+  const [watermarkPosition, setWatermarkPosition] = useState('bottom-right');
+  const [watermarkSize, setWatermarkSize] = useState(15);
+  const [normalizeAudio, setNormalizeAudio] = useState(false);
+  const [volumeAdjustment, setVolumeAdjustment] = useState(0);
+  const [bgMusicUrl, setBgMusicUrl] = useState('');
+  const [bgMusicVolume, setBgMusicVolume] = useState(30);
+  const [exportResolution, setExportResolution] = useState('1080p');
+  const [exportBitrate, setExportBitrate] = useState(10);
+  const [thumbnailTitle, setThumbnailTitle] = useState('');
+  const [thumbnailTemplate, setThumbnailTemplate] = useState('none');
+  const [ctaText, setCtaText] = useState('Watch full video');
+  const [addEndScreen, setAddEndScreen] = useState(true);
+
+  // Presets state
+  const [availablePresets, setAvailablePresets] = useState({});
+  const [selectedPreset, setSelectedPreset] = useState('');
+  const [presetName, setPresetName] = useState('');
+
+  // History state
+  const [history, setHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  // User preferences
+  const [userPreferences, setUserPreferences] = useState({
+    keyboardShortcuts: {
+      'ctrl+e': 'toggle-editor',
+      'ctrl+p': 'process-video',
+      'ctrl+s': 'export-clip',
+      'ctrl+z': 'undo',
+      'ctrl+y': 'redo',
+      '+': 'zoom-in',
+      '-': 'zoom-out'
+    },
+    uiSettings: {
+      theme: 'light',
+      fontSize: 'medium',
+      sidebarCollapsed: false,
+      autoSave: true,
+      showTooltips: true
+    }
+  });
+
+  // Drag and drop state
+  const [dragging, setDragging] = useState(false);
+  const containerRef = useRef(null);
+
+  // Content suggestions state
+  const [availableContentTypes, setAvailableContentTypes] = useState([]);
+  const [selectedContentType, setSelectedContentType] = useState('');
+  const [contentSuggestions, setContentSuggestions] = useState(null);
 
   // Error state
   const [error, setError] = useState('');
@@ -117,6 +177,56 @@ const CreateShortPage = () => {
       localStorage.setItem('darkMode', 'false');
     }
   }, [darkMode]);
+
+  // Initialize keyboard shortcuts
+  const keyboardShortcuts = {
+    'ctrl+e': () => {
+      // Toggle editor visibility or focus
+      const editor = document.querySelector('.video-editor-container');
+      if (editor) {
+        editor.scrollIntoView({ behavior: 'smooth' });
+        editor.focus();
+      }
+    },
+    'ctrl+p': () => {
+      // Trigger processing
+      if (inputMode === 'youtube' && youtubeUrl) {
+        handleGetYoutubeInfo();
+      } else if (inputMode === 'upload' && uploadedFile) {
+        handleFileUpload({ target: { files: [uploadedFile] } });
+      }
+    },
+    'ctrl+shift+d': () => {
+      // Clear all data
+      handleCleanup();
+    },
+    'ctrl+h': () => {
+      // Toggle history panel
+      setShowHistory(prev => !prev);
+    }
+  };
+
+  useKeyboardShortcuts(keyboardShortcuts);
+
+  // Setup drag and drop
+  const handleDropFiles = (files) => {
+    if (files.length > 0) {
+      setUploadedFile(files[0]);
+      setInputMode('upload');
+      setError('');
+
+      // Auto-process the uploaded file
+      handleFileUpload({ target: { files } });
+    }
+  };
+
+  const { isDragging, bindEvents } = useDragAndDrop(handleDropFiles);
+
+  useEffect(() => {
+    if (containerRef.current) {
+      bindEvents(containerRef);
+    }
+  }, [bindEvents]);
 
   // Toggle dark mode
   const toggleDarkMode = () => {
@@ -491,7 +601,22 @@ const CreateShortPage = () => {
       const response = await axios.post('/api/highlights/video/export-clips', {
         videoPath: videoPathForExport,
         segments: segmentsToExport,
-        format: selectedFormat
+        format: selectedFormat,
+        // Branding options
+        watermarkUrl: watermarkUrl,
+        watermarkPosition: watermarkPosition,
+        watermarkSize: watermarkSize,
+        // Audio options
+        normalizeAudio: normalizeAudio,
+        volumeAdjustment: volumeAdjustment,
+        bgMusicUrl: bgMusicUrl,
+        bgMusicVolume: bgMusicVolume,
+        // Quality options
+        resolution: exportResolution,
+        bitrate: exportBitrate,
+        // CTA options
+        ctaText: ctaText,
+        addEndScreen: addEndScreen
       });
 
       if (response.data.success) {
@@ -508,6 +633,226 @@ const CreateShortPage = () => {
       setError('Failed to export clips: ' + (err.response?.data?.error || err.message));
       setProcessingStage('');
       setIsProcessing(false);
+    }
+  };
+
+  // ============ THUMBNAIL GENERATION ============
+  const [generatedThumbnail, setGeneratedThumbnail] = useState(null);
+
+  const handleGenerateThumbnail = async () => {
+    if (!videoPathForExport) {
+      setError('No video available to generate thumbnail from');
+      return;
+    }
+
+    setIsProcessing(true);
+    setProcessingStage('Generating thumbnail...');
+
+    try {
+      const response = await axios.post('/api/highlights/video/generate-thumbnail', {
+        videoPath: videoPathForExport,
+        title: thumbnailTitle,
+        template: thumbnailTemplate,
+        watermarkUrl: watermarkUrl,
+        watermarkPosition: watermarkPosition,
+        timestamp: 10 // Default to 10 seconds into the video
+      });
+
+      if (response.data.success) {
+        // Update the thumbnail with a timestamp to bypass cache
+        const thumbnailUrlWithTimestamp = `${response.data.thumbnailUrl}?t=${Date.now()}`;
+        setGeneratedThumbnail(thumbnailUrlWithTimestamp);
+        setProcessingStage('Thumbnail generated successfully!');
+      } else {
+        setError('Failed to generate thumbnail: ' + response.data.error);
+      }
+    } catch (err) {
+      console.error('Error generating thumbnail:', err);
+      setError('Failed to generate thumbnail: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setProcessingStage('');
+      setIsProcessing(false);
+    }
+  };
+
+  // ============ PRESETS ============
+  const loadPresets = async () => {
+    try {
+      // Get the current user ID
+      const userId = getCurrentUserId();
+      const response = await axios.get(`/api/presets/${userId}`);
+      if (response.data.success) {
+        setAvailablePresets(response.data.presets);
+      }
+    } catch (err) {
+      console.error('Error loading presets:', err);
+    }
+  };
+
+  const applyPreset = async (presetId) => {
+    if (!presetId) return;
+
+    try {
+      // Get the current user ID
+      const userId = getCurrentUserId();
+      const response = await axios.get(`/api/presets/${userId}/${presetId}`);
+
+      if (response.data.success) {
+        const settings = response.data.settings;
+
+        // Apply the preset settings
+        setWatermarkUrl(settings.watermarkUrl || '');
+        setWatermarkPosition(settings.watermarkPosition || 'bottom-right');
+        setWatermarkSize(settings.watermarkSize || 15);
+        setNormalizeAudio(settings.normalizeAudio || false);
+        setVolumeAdjustment(settings.volumeAdjustment || 0);
+        setBgMusicUrl(settings.bgMusicUrl || '');
+        setBgMusicVolume(settings.bgMusicVolume || 30);
+        setExportResolution(settings.exportResolution || '1080p');
+        setExportBitrate(settings.exportBitrate || 10);
+        setThumbnailTitle(settings.thumbnailTitle || '');
+        setThumbnailTemplate(settings.thumbnailTemplate || 'none');
+        setCtaText(settings.ctaText || 'Watch full video');
+        setAddEndScreen(settings.addEndScreen !== undefined ? settings.addEndScreen : true);
+
+        alert(`Preset "${presetId}" applied successfully!`);
+      }
+    } catch (err) {
+      console.error('Error applying preset:', err);
+      setError('Failed to apply preset: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handlePresetChange = (e) => {
+    const presetId = e.target.value;
+    setSelectedPreset(presetId);
+    if (presetId) {
+      applyPreset(presetId);
+    }
+  };
+
+  // Load presets on component mount
+  React.useEffect(() => {
+    loadPresets();
+    loadContentTypes();
+  }, []);
+
+  // ============ CONTENT SUGGESTIONS ============
+  const loadContentTypes = async () => {
+    try {
+      const response = await axios.get('/api/highlights/suggestions/content-types');
+      if (response.data.success) {
+        setAvailableContentTypes(response.data.contentTypes);
+      }
+    } catch (err) {
+      console.error('Error loading content types:', err);
+    }
+  };
+
+  const getSuggestions = async () => {
+    if (!selectedContentType) return;
+
+    try {
+      const response = await axios.post('/api/highlights/suggestions/optimize-content', {
+        contentType: selectedContentType,
+        videoDuration: videoInfo?.duration // Pass the video duration if available
+      });
+
+      if (response.data.success) {
+        setContentSuggestions(response.data.suggestions);
+
+        // Optionally apply the suggested settings automatically
+        // This would require confirmation from the user in a real app
+      }
+    } catch (err) {
+      console.error('Error getting content suggestions:', err);
+      setError('Failed to get content suggestions: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  const handleContentTypeChange = (e) => {
+    const contentType = e.target.value;
+    setSelectedContentType(contentType);
+
+    if (contentType) {
+      getSuggestions();
+    } else {
+      setContentSuggestions(null);
+    }
+  };
+
+  // ============ QUALITY OF LIFE FEATURES ============
+
+  // Save current settings as a preset
+  const savePreset = async () => {
+    if (!presetName.trim()) {
+      setError('Please enter a name for the preset');
+      return;
+    }
+
+    try {
+      const settingsToSave = {
+        watermarkUrl,
+        watermarkPosition,
+        watermarkSize,
+        normalizeAudio,
+        volumeAdjustment,
+        bgMusicUrl,
+        bgMusicVolume,
+        exportResolution,
+        exportBitrate,
+        thumbnailTitle,
+        thumbnailTemplate,
+        ctaText,
+        addEndScreen
+      };
+
+      // Get the current user ID
+      const userId = getCurrentUserId();
+      const response = await axios.post(`/api/presets/${userId}`, {
+        presetName: presetName.trim(),
+        settings: settingsToSave
+      });
+
+      if (response.data.success) {
+        // Update available presets
+        const newPreset = { [presetName.trim()]: settingsToSave };
+        setAvailablePresets(prev => ({ ...prev, ...newPreset }));
+        setPresetName(''); // Clear preset name input
+
+        // Show success message
+        alert(`Preset "${presetName.trim()}" saved successfully!`);
+      }
+    } catch (err) {
+      console.error('Error saving preset:', err);
+      setError('Failed to save preset: ' + (err.response?.data?.error || err.message));
+    }
+  };
+
+  // Fetch user history
+  const fetchHistory = async () => {
+    try {
+      // Get the current user ID
+      const userId = getCurrentUserId();
+      const response = await axios.get(`/api/preferences/history/${userId}`);
+
+      if (response.data.success) {
+        setHistory(response.data.history || []);
+      } else {
+        setHistory([]);
+      }
+    } catch (err) {
+      console.error('Error fetching history:', err);
+      // If the endpoint doesn't exist, just initialize with empty array
+      setHistory([]);
+    }
+  };
+
+  // Toggle history panel visibility
+  const toggleHistoryPanel = () => {
+    setShowHistory(!showHistory);
+    if (!showHistory) {
+      fetchHistory();
     }
   };
 
@@ -531,15 +876,56 @@ const CreateShortPage = () => {
   };
 
   return (
-    <div className="create-short-page">
+    <div className="create-short-page" ref={containerRef}>
+      {isDragging && (
+        <div className="drag-overlay">
+          <div className="drag-indicator">
+            <UploadSimple size={64} weight="light" />
+            <p>Drop your video file here</p>
+          </div>
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="history-panel">
+          <div className="history-header">
+            <h3>Activity History</h3>
+            <button onClick={() => setShowHistory(false)} className="close-btn">×</button>
+          </div>
+          <div className="history-content">
+            {history.length > 0 ? (
+              <ul>
+                {history.map((item, index) => (
+                  <li key={index} className="history-item">
+                    <div className="history-action">{item.action}</div>
+                    <div className="history-details">{item.details}</div>
+                    <div className="history-time">{new Date(item.timestamp).toLocaleString()}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No history available</p>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="page-header">
         <h1>Video Clip Generator</h1>
-        <button className="cleanup-btn" onClick={handleCleanup} aria-label="Clear cache and downloads" title="Clear cache and downloads">
-          <Trash weight="fill" size={20} />
-        </button>
-        <button className="dark-mode-toggle" onClick={toggleDarkMode} aria-label="Toggle dark mode">
-          {darkMode ? <Sun weight="fill" size={20} /> : <Moon weight="fill" size={20} />}
-        </button>
+        <div className="header-actions">
+          <button className="icon-btn" onClick={toggleHistoryPanel} title="Toggle History">
+            <ClockCounterClockwise size={20} />
+          </button>
+          <button className="icon-btn" onClick={() => setShowHistory(!showHistory)} title="History Panel">
+            <BookmarkSimple size={20} />
+          </button>
+          <button className="cleanup-btn" onClick={handleCleanup} aria-label="Clear cache and downloads" title="Clear cache and downloads">
+            <Trash weight="fill" size={20} />
+          </button>
+          <button className="dark-mode-toggle" onClick={toggleDarkMode} aria-label="Toggle dark mode">
+            {darkMode ? <Sun weight="fill" size={20} /> : <Moon weight="fill" size={20} />}
+          </button>
+        </div>
       </div>
 
       {/* Unified Input Section */}
@@ -892,6 +1278,328 @@ const CreateShortPage = () => {
             <p className="export-hint">
               Multiple clips will be bundled into a ZIP file. Files are named: qa-01-{selectedFormat}.mp4, qa-02-{selectedFormat}.mp4, etc.
             </p>
+
+            {/* Advanced Customization Options */}
+            <details className="customization-options">
+              <summary>Advanced Customization <CaretDown size={16} /></summary>
+              <div className="customization-panel">
+                {/* Content Type Selector */}
+                <div className="content-type-section">
+                  <h5>Content Optimization</h5>
+
+                  <div className="input-group">
+                    <label htmlFor="content-type-select">Content Type:</label>
+                    <select
+                      id="content-type-select"
+                      value={selectedContentType}
+                      onChange={handleContentTypeChange}
+                      disabled={isProcessing}
+                    >
+                      <option value="">Select content type...</option>
+                      {availableContentTypes.map(type => (
+                        <option key={type} value={type}>
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {contentSuggestions && (
+                    <div className="suggestions-panel">
+                      <h6>Suggested Settings</h6>
+                      <ul className="suggestions-list">
+                        {contentSuggestions.suggestedSettings.exportResolution && (
+                          <li>Resolution: <strong>{contentSuggestions.suggestedSettings.exportResolution}</strong></li>
+                        )}
+                        {contentSuggestions.suggestedSettings.exportBitrate && (
+                          <li>Bitrate: <strong>{contentSuggestions.suggestedSettings.exportBitrate} Mbps</strong></li>
+                        )}
+                        <li>Subtitles: <strong>{contentSuggestions.suggestedSettings.addSubtitles ? 'Yes' : 'No'}</strong></li>
+                        <li>CTA: <strong>{contentSuggestions.suggestedSettings.ctaText}</strong></li>
+                      </ul>
+
+                      {contentSuggestions.clipLengthSuggestion && (
+                        <div className="clip-length-suggestion">
+                          <h6>Optimal Clip Length</h6>
+                          <p>Suggested: <strong>{contentSuggestions.clipLengthSuggestion.suggested || contentSuggestions.clipLengthSuggestion.ideal || contentSuggestions.clipLengthSuggestion.min} seconds</strong></p>
+                        </div>
+                      )}
+
+                      {contentSuggestions.engagementTips && (
+                        <div className="engagement-tips">
+                          <h6>Engagement Tips</h6>
+                          <ul>
+                            {contentSuggestions.engagementTips.slice(0, 3).map((tip, idx) => (
+                              <li key={idx}>{tip}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Preset Management */}
+                <div className="preset-section">
+                  <h5>Saved Presets</h5>
+
+                  <div className="input-group">
+                    <label htmlFor="preset-select">Apply Preset:</label>
+                    <select
+                      id="preset-select"
+                      value={selectedPreset}
+                      onChange={handlePresetChange}
+                      disabled={isProcessing}
+                    >
+                      <option value="">Choose a preset...</option>
+                      {Object.keys(availablePresets).map(presetName => (
+                        <option key={presetName} value={presetName}>
+                          {presetName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="new-preset">Save Current Settings:</label>
+                    <div className="preset-input-wrapper">
+                      <input
+                        type="text"
+                        id="new-preset"
+                        placeholder="Enter preset name"
+                        value={presetName}
+                        onChange={(e) => setPresetName(e.target.value)}
+                        disabled={isProcessing}
+                      />
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={savePreset}
+                        disabled={!presetName.trim() || isProcessing}
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Branding Options */}
+                <div className="branding-section">
+                  <h5>Branding & Overlays</h5>
+
+                  <div className="input-group">
+                    <label htmlFor="watermark-url">Watermark URL:</label>
+                    <input
+                      type="text"
+                      id="watermark-url"
+                      placeholder="https://example.com/logo.png"
+                      value={watermarkUrl}
+                      onChange={(e) => setWatermarkUrl(e.target.value)}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="watermark-position">Watermark Position:</label>
+                    <select
+                      id="watermark-position"
+                      value={watermarkPosition}
+                      onChange={(e) => setWatermarkPosition(e.target.value)}
+                      disabled={isProcessing}
+                    >
+                      <option value="top-left">Top Left</option>
+                      <option value="top-right">Top Right</option>
+                      <option value="bottom-left">Bottom Left</option>
+                      <option value="bottom-right">Bottom Right</option>
+                      <option value="center">Center</option>
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="watermark-size">Watermark Size (%):</label>
+                    <input
+                      type="range"
+                      id="watermark-size"
+                      min="5"
+                      max="30"
+                      value={watermarkSize}
+                      onChange={(e) => setWatermarkSize(parseInt(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                    <span className="range-value">{watermarkSize}%</span>
+                  </div>
+                </div>
+
+                {/* Audio Enhancement */}
+                <div className="audio-section">
+                  <h5>Audio Enhancement</h5>
+
+                  <div className="input-group">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={normalizeAudio}
+                        onChange={(e) => setNormalizeAudio(e.target.checked)}
+                        disabled={isProcessing}
+                      />
+                      Normalize Audio Volume
+                    </label>
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="volume-adjustment">Volume Adjustment (dB):</label>
+                    <input
+                      type="range"
+                      id="volume-adjustment"
+                      min="-10"
+                      max="10"
+                      value={volumeAdjustment}
+                      onChange={(e) => setVolumeAdjustment(parseInt(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                    <span className="range-value">{volumeAdjustment}dB</span>
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="bg-music-url">Background Music:</label>
+                    <input
+                      type="text"
+                      id="bg-music-url"
+                      placeholder="https://example.com/music.mp3"
+                      value={bgMusicUrl}
+                      onChange={(e) => setBgMusicUrl(e.target.value)}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="bg-music-volume">Background Volume (%):</label>
+                    <input
+                      type="range"
+                      id="bg-music-volume"
+                      min="0"
+                      max="100"
+                      value={bgMusicVolume}
+                      onChange={(e) => setBgMusicVolume(parseInt(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                    <span className="range-value">{bgMusicVolume}%</span>
+                  </div>
+                </div>
+
+                {/* Export Quality */}
+                <div className="quality-section">
+                  <h5>Export Quality</h5>
+
+                  <div className="input-group">
+                    <label htmlFor="resolution">Resolution:</label>
+                    <select
+                      id="resolution"
+                      value={exportResolution}
+                      onChange={(e) => setExportResolution(e.target.value)}
+                      disabled={isProcessing}
+                    >
+                      <option value="720p">HD (720p)</option>
+                      <option value="1080p">Full HD (1080p)</option>
+                      <option value="1440p">2K (1440p)</option>
+                      <option value="2160p">4K (2160p)</option>
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="bitrate">Bitrate (Mbps):</label>
+                    <input
+                      type="range"
+                      id="bitrate"
+                      min="1"
+                      max="50"
+                      value={exportBitrate}
+                      onChange={(e) => setExportBitrate(parseInt(e.target.value))}
+                      disabled={isProcessing}
+                    />
+                    <span className="range-value">{exportBitrate} Mbps</span>
+                  </div>
+                </div>
+
+                {/* Thumbnail Options */}
+                <div className="thumbnail-section">
+                  <h5>Thumbnail Options</h5>
+
+                  <div className="input-group">
+                    <label htmlFor="thumbnail-title">Title Overlay:</label>
+                    <input
+                      type="text"
+                      id="thumbnail-title"
+                      placeholder="Enter title to overlay on thumbnail"
+                      value={thumbnailTitle}
+                      onChange={(e) => setThumbnailTitle(e.target.value)}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label htmlFor="thumbnail-template">Template:</label>
+                    <select
+                      id="thumbnail-template"
+                      value={thumbnailTemplate}
+                      onChange={(e) => setThumbnailTemplate(e.target.value)}
+                      disabled={isProcessing}
+                    >
+                      <option value="none">None</option>
+                      <option value="overlay">Text Overlay</option>
+                      <option value="split">Split Screen</option>
+                      <option value="border">Border Frame</option>
+                    </select>
+                  </div>
+
+                  <div className="thumbnail-controls">
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={handleGenerateThumbnail}
+                      disabled={isProcessing || !videoPathForExport}
+                    >
+                      Generate Thumbnail
+                    </button>
+
+                    {generatedThumbnail && (
+                      <div className="thumbnail-preview">
+                        <img src={generatedThumbnail} alt="Generated thumbnail" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* End Screen CTA */}
+                <div className="cta-section">
+                  <h5>End Screen & Call-to-Action</h5>
+
+                  <div className="input-group">
+                    <label htmlFor="cta-text">CTA Text:</label>
+                    <input
+                      type="text"
+                      id="cta-text"
+                      placeholder="Watch full video"
+                      value={ctaText}
+                      onChange={(e) => setCtaText(e.target.value)}
+                      disabled={isProcessing}
+                    />
+                  </div>
+
+                  <div className="input-group">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={addEndScreen}
+                        onChange={(e) => setAddEndScreen(e.target.checked)}
+                        disabled={isProcessing}
+                      />
+                      Add End Screen with CTA
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </details>
           </div>
         </>
       )}

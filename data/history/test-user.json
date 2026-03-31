@@ -1,0 +1,11 @@
+[
+  {
+    "id": "0c70f964-99f9-4d56-9383-64e5d14ba7bb",
+    "action": "test-action",
+    "targetType": "video",
+    "targetId": "123",
+    "details": "Test details",
+    "timestamp": "2026-03-31T01:14:47.574Z",
+    "userId": "test-user"
+  }
+]

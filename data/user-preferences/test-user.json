@@ -1,0 +1,27 @@
+{
+  "userId": "test-user",
+  "keyboardShortcuts": {
+    "toggle-editor": "ctrl+e",
+    "process-video": "ctrl+p",
+    "export-clip": "ctrl+s",
+    "undo": "ctrl+z",
+    "redo": "ctrl+y",
+    "zoom-in": "+",
+    "zoom-out": "-"
+  },
+  "uiSettings": {
+    "theme": "dark",
+    "fontSize": "medium",
+    "sidebarCollapsed": false,
+    "autoSave": true,
+    "showTooltips": true
+  },
+  "lastUsedSettings": {
+    "preset": "default",
+    "exportFormat": "mp4",
+    "resolution": "1080p",
+    "captionStyle": "hormozi"
+  },
+  "createdAt": "2026-03-31T01:14:14.829Z",
+  "updatedAt": "2026-03-31T01:14:14.829Z"
+}
