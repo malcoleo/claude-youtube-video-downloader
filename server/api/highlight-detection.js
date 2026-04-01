@@ -1191,7 +1191,16 @@ router.post('/video/export-clips', async (req, res) => {
 router.get('/video/download/:filename', async (req, res) => {
   try {
     const filename = req.params.filename;
-    const filePath = path.join(__dirname, '../../temp/exports', filename);
+    // Sanitize filename to prevent path traversal attacks
+    const sanitizedFilename = path.basename(filename);
+    const filePath = path.join(__dirname, '../../temp/exports', sanitizedFilename);
+
+    // Validate file is within allowed directory
+    const realPath = path.resolve(filePath);
+    const realExports = path.resolve(__dirname, '../../temp/exports');
+    if (!realPath.startsWith(realExports + path.sep)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
 
     await fs.promises.access(filePath);
     res.download(filePath, (err) => {

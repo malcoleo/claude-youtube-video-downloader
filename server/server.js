@@ -155,7 +155,18 @@ app.use(express.static(path.join(__dirname, '../client/build'), {
 
 // Download endpoint - forces download with proper headers and no-cache
 app.get('/download/:filename', (req, res) => {
-  const filePath = path.join(__dirname, '../output', req.params.filename);
+  const filename = req.params.filename;
+  // Sanitize filename to prevent path traversal attacks
+  const sanitizedFilename = path.basename(filename);
+  const filePath = path.join(__dirname, '../output', sanitizedFilename);
+
+  // Validate file is within allowed directory
+  const realPath = path.resolve(filePath);
+  const realOutput = path.resolve(__dirname, '../output');
+  if (!realPath.startsWith(realOutput + path.sep)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
