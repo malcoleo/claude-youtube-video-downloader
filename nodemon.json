@@ -1,0 +1,11 @@
+{
+  "ignore": [
+    "temp/*",
+    "output/*",
+    "analytics/*",
+    "data/*",
+    "client/*",
+    ".gstack/*"
+  ],
+  "delay": 2500
+}
