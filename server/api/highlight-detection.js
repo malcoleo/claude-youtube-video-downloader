@@ -1129,8 +1129,8 @@ router.post('/video/export-clips', async (req, res) => {
           watermarkUrl: watermarkUrl,
           watermarkPosition: watermarkPosition,
           normalizeAudio: normalizeAudio,
-          exportResolution: exportResolution,
-          exportBitrate: exportBitrate,
+          resolution: resolution,
+          bitrate: bitrate,
           addEndScreen: addEndScreen
         }
       });
