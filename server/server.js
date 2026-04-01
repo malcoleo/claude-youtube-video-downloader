@@ -15,6 +15,8 @@ const cmsIntegrationRoutes = require('./api/cms-integration');
 const publicApiRoutes = require('./api/public-api');
 const userPreferencesRoutes = require('./api/user-preferences');
 const presetsRoutes = require('./api/presets');
+const authRoutes = require('./api/auth');
+const schedulerRoutes = require('./api/scheduler');
 
 // Note: highlightDetectionRoutes exports both a router and podcastRouter
 const highlightRouter = highlightDetectionRoutes.router || highlightDetectionRoutes;
@@ -71,13 +73,17 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With']
 }));
 
-// Rate limiting disabled for development
-// const limiter = rateLimit({
-//   windowMs: 15 * 60 * 1000, // 15 minutes
-//   max: 100, // Limit each IP to 100 requests per windowMs
-//   validate: false // Disable header validation
-// });
-// app.use(limiter);
+// Rate limiting - enabled in production, relaxed in development
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // Higher limit in development
+  validate: false, // Disable header validation
+  message: {
+    success: false,
+    error: 'Too many requests, please try again later'
+  }
+});
+app.use(limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '50mb' }));
@@ -94,6 +100,8 @@ app.use('/api/cms', cmsIntegrationRoutes);
 app.use('/api/preferences', userPreferencesRoutes);
 app.use('/api/presets', presetsRoutes);
 app.use('/api', publicApiRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/scheduler', schedulerRoutes);
 
 // Serve output directory for video playback (with download support)
 // MUST come BEFORE React static files route

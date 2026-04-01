@@ -46,10 +46,14 @@ class PythonAIWrapper {
 
       whisperArgs.push(audioPath);
 
-      const jsonOutputPath = audioPath + '.json';
+      // whisper-cli outputs to {inputPath}.json - ensure we use absolute path
+      const absoluteAudioPath = path.isAbsolute(audioPath) ? audioPath : path.resolve(audioPath);
+      const jsonOutputPath = absoluteAudioPath + '.json';
 
       try {
         console.log(`Transcribing ${audioPath} with whisper.cpp...`);
+        console.log(`Audio path (absolute): ${absoluteAudioPath}`);
+        console.log(`Expected JSON output: ${jsonOutputPath}`);
         execFileSync('whisper-cli', whisperArgs, {
           stdio: ['pipe', 'pipe', 'pipe'],
           maxBuffer: 100 * 1024 * 1024 // 100MB buffer for long transcripts
@@ -57,13 +61,24 @@ class PythonAIWrapper {
 
         // Verify JSON output was created
         if (!fs.existsSync(jsonOutputPath)) {
+          console.error(`JSON file not found at ${jsonOutputPath}`);
+          // Check if it was created elsewhere (common whisper.cpp behavior)
+          const cwdJson = path.join(process.cwd(), path.basename(audioPath) + '.json');
+          if (fs.existsSync(cwdJson)) {
+            console.log(`Found JSON in CWD: ${cwdJson}`);
+          }
           throw new Error(`Whisper JSON output not created at ${jsonOutputPath}`);
         }
+        console.log(`JSON output verified at ${jsonOutputPath}`);
 
         // Convert whisper output to qa-detector format using execFileSync
-        const wordsFlag = includeWordTimestamps ? '--words' : '';
-        console.log(`Running whisper-to-qa.py on ${jsonOutputPath}...`);
-        const pythonOutput = execFileSync('python3', ['-u', this.whisperToQaPath, wordsFlag, jsonOutputPath], {
+        const pythonArgs = ['-u', this.whisperToQaPath];
+        if (includeWordTimestamps) {
+          pythonArgs.push('--words');
+        }
+        pythonArgs.push(jsonOutputPath);
+        console.log(`Running whisper-to-qa.py with args: ${pythonArgs.join(' ')}...`);
+        const pythonOutput = execFileSync('python3', pythonArgs, {
           encoding: 'utf8',
           maxBuffer: 50 * 1024 * 1024 // 50MB buffer
         });

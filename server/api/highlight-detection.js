@@ -11,6 +11,8 @@ const ClipAnalytics = require('../analytics/clip-analytics');
 const PresetManager = require('../utils/presets');
 const ContentSuggestions = require('../ai/content-suggestions');
 const PlatformOptimizer = require('../utils/platform-optimizer');
+const VideoCache = require('../utils/video-cache');
+const FFmpegOptimizer = require('../utils/ffmpeg-optimizer');
 
 const videoProcessor = new VideoProcessor();
 const pythonAI = new PythonAIWrapper();
@@ -18,6 +20,8 @@ const clipAnalytics = new ClipAnalytics();
 const presetManager = new PresetManager();
 const contentSuggestions = new ContentSuggestions();
 const platformOptimizer = new PlatformOptimizer();
+const videoCache = new VideoCache();
+const ffmpegOptimizer = new FFmpegOptimizer();
 
 /**
  * Parse an ffmpeg command string into an argument array for execFile.
@@ -1203,6 +1207,29 @@ router.get('/video/download/:filename', async (req, res) => {
   } catch (err) {
     console.error('Download error:', err);
     res.status(404).json({ error: 'File not found' });
+  }
+});
+
+// Cache management endpoints
+router.get('/cache/stats', async (req, res) => {
+  try {
+    const stats = videoCache.getStats();
+    const encodingInfo = ffmpegOptimizer.getEncodingInfo();
+    res.json({
+      cache: stats,
+      encoding: encodingInfo
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post('/cache/clear', async (req, res) => {
+  try {
+    const removed = videoCache.clearCache();
+    res.json({ success: true, removed });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

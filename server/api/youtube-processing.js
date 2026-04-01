@@ -521,17 +521,25 @@ router.post('/detect-qa', async (req, res) => {
     const info = JSON.parse(infoResultData.stdout);
     console.log(`[Q&A] Video: ${info.title.substring(0, 50)}... Duration: ${info.duration}s`);
 
-    // Generate download ID for progress polling
+    // Use the ID from request for progress polling
     const downloadId = req.body.id || 'qa-' + Date.now();
-    const progressCallback = (progress) => {
-      console.log(`[Q&A] Progress: ${progress.percent.toFixed(1)}%`);
-      downloadProgressMap[downloadId] = progress;
+
+    // Helper to update progress
+    const updateProgress = (percent, stage = null) => {
+      downloadProgressMap[downloadId] = {
+        percent: Math.round(percent),
+        eta: null,
+        speed: null,
+        stage: stage
+      };
+      console.log(`[Q&A] Progress: ${percent.toFixed(1)}% - ${stage || 'downloading'}`);
     };
 
     // Download video to temp location
     const tempFilePath = path.join(videoProcessor.tempDir, `youtube-${Date.now()}`);
 
     console.log('[Q&A] Downloading video...');
+    updateProgress(5, 'Downloading video...');
     const downloadResult = await runYtDlp([
       '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
       '--merge-output-format', 'mp4',
@@ -539,10 +547,10 @@ router.post('/detect-qa', async (req, res) => {
       '--no-warnings',
       '--progress',
       `"${youtubeUrl}"`
-    ], progressCallback);
-
-    // Clean up progress tracking
-    delete downloadProgressMap[downloadId];
+    ], (progress) => {
+      // Scale download progress from 5% to 40%
+      updateProgress(5 + (progress.percent * 0.35), 'Downloading video...');
+    });
 
     const downloadedFile = tempFilePath + '.mp4';
 
@@ -550,16 +558,19 @@ router.post('/detect-qa', async (req, res) => {
       throw new Error('Download failed - file not found');
     }
     console.log(`[Q&A] File downloaded: ${downloadedFile}`);
+    updateProgress(40, 'Download complete');
 
     // Step 2: Check if YouTube chapters exist and should be used
     const chapters = extractChaptersFromInfo(info);
     console.log(`[Q&A] Found ${chapters.length} chapters`);
+    updateProgress(42, `Found ${chapters.length} chapters`);
 
     let finalQaPairs = [];
 
     if (chapters.length > 0) {
       // Use YouTube chapters as primary clip sources
       console.log('[Q&A] Using YouTube chapters as clip boundaries');
+      updateProgress(45, 'Processing chapters...');
 
       // Break down long chapters into smaller clips
       const optimizedChapters = breakDownLongChapters(chapters, 120, 90);
@@ -567,6 +578,7 @@ router.post('/detect-qa', async (req, res) => {
 
       // Extract audio for whisper processing
       console.log('[Q&A] Extracting audio...');
+      updateProgress(48, 'Extracting audio...');
       const audioPath = tempFilePath + '.wav';
 
       await new Promise((resolve, reject) => {
@@ -578,14 +590,20 @@ router.post('/detect-qa', async (req, res) => {
             reject(err);
           } else {
             console.log('[Q&A] Audio extraction complete');
+            updateProgress(50, 'Audio extracted');
             resolve();
           }
         });
       });
 
       // Run Q&A detection to fine-tune chapters
-      console.log('[Q&A] Running whisper transcription...');
+      console.log('[Q&A] Running whisper transcription (this may take several minutes)...');
+      updateProgress(55, 'Running AI transcription...');
+
+      // Note: Whisper transcription is the slowest part - can take 5-10 minutes for long videos
       const fullTranscript = await pythonAI.transcribeAndDetectQA(audioPath);
+
+      updateProgress(85, `Transcription complete - ${fullTranscript.stats?.totalSegments || 0} segments found`);
       console.log(`[Q&A] Full transcript has ${fullTranscript.stats?.totalSegments || 0} segments`);
 
       // Process each chapter - either use as-is or fine-tune if too long
@@ -684,9 +702,11 @@ router.post('/detect-qa', async (req, res) => {
     } else {
       // No chapters found - fallback to full Q&A detection
       console.log('[Q&A] No chapters found, using full Q&A detection');
+      updateProgress(50, 'No chapters - running AI detection...');
 
       // Extract audio for whisper processing
       console.log('[Q&A] Extracting audio...');
+      updateProgress(50, 'Extracting audio...');
       const audioPath = tempFilePath + '.wav';
 
       await new Promise((resolve, reject) => {
@@ -698,14 +718,16 @@ router.post('/detect-qa', async (req, res) => {
             reject(err);
           } else {
             console.log('[Q&A] Audio extraction complete');
+            updateProgress(55, 'Running AI transcription...');
             resolve();
           }
         });
       });
 
       // Run Q&A detection pipeline
-      console.log('[Q&A] Running whisper transcription + Q&A detection...');
+      console.log('[Q&A] Running whisper transcription + Q&A detection (this may take several minutes)...');
       const qaResult = await pythonAI.transcribeAndDetectQA(audioPath);
+      updateProgress(85, `Found ${qaResult.qaPairs.length} Q&A pairs`);
       console.log(`[Q&A] Found ${qaResult.qaPairs.length} Q&A pairs`);
 
       finalQaPairs = qaResult.qaPairs.map((pair, idx) => ({
@@ -734,9 +756,11 @@ router.post('/detect-qa', async (req, res) => {
 
     // Sort by score descending
     finalQaPairs.sort((a, b) => b.score - a.score);
+    updateProgress(88, 'Sorting clips by priority...');
 
     // Generate preview video (480p compressed for smooth hover playback)
     console.log('[Q&A] Generating preview video...');
+    updateProgress(90, 'Generating preview video...');
     const previewPath = tempFilePath + '-preview.mp4';
 
     await new Promise((resolve, reject) => {
@@ -748,6 +772,7 @@ router.post('/detect-qa', async (req, res) => {
           reject(err);
         } else {
           console.log('[Q&A] Preview generation complete');
+          updateProgress(98, 'Finalizing...');
           resolve();
         }
       });
@@ -757,6 +782,7 @@ router.post('/detect-qa', async (req, res) => {
     const outputFilename = videoProcessor.generateUniqueFilename('mp4');
     const outputPath = path.join(videoProcessor.outputDir, outputFilename);
     await fs.promises.copyFile(downloadedFile, outputPath);
+    updateProgress(100, 'Complete!');
 
     // Clean up temp files (keep output file)
     try {
@@ -819,10 +845,13 @@ router.post('/detect-qa', async (req, res) => {
 
   } catch (error) {
     console.error('Error in YouTube Q&A detection:', error);
+    // Get youtubeUrl safely - may be undefined if error occurred before initialization
+    const errorYoutubeUrl = typeof youtubeUrl !== 'undefined' ? youtubeUrl : req?.body?.youtubeUrl || '';
+
     // Check if this is a validation error vs a processing error
     if (error.message && (error.message.includes('Invalid URL') || error.message.includes('Unsupported URL'))) {
       // This might be a URL format issue, provide suggestions
-      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      const normalizationResult = normalizeYouTubeUrl(errorYoutubeUrl);
       res.status(400).json({
         error: 'Failed to detect Q&A pairs: ' + error.message,
         suggestions: normalizationResult.suggestions,
@@ -830,7 +859,7 @@ router.post('/detect-qa', async (req, res) => {
       });
     } else {
       // Processing error, but since the URL was validated, provide suggestions anyway
-      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
+      const normalizationResult = normalizeYouTubeUrl(errorYoutubeUrl);
 
       // Check if this is specifically a network/processing error that might benefit from URL suggestions
       const isProcessingError = error.message && (

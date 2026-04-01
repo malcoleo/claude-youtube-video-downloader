@@ -26,11 +26,13 @@ import {
   Keyboard,
   BookmarkSimple,
   ClockCounterClockwise,
-  CaretDown
+  CaretDown,
+  ShareNetwork
 } from '@phosphor-icons/react';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDragAndDrop } from '../hooks/useDragAndDrop';
 import { getCurrentUserId } from '../utils/userUtils';
+import SocialMediaManager from '../components/SocialMediaManager';
 
 // eslint-disable-next-line no-unused-vars
 import './CreateShort.css';
@@ -90,6 +92,9 @@ const CreateShortPage = () => {
   // History state
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Social media manager state
+  const [showSocialMediaManager, setShowSocialMediaManager] = useState(false);
 
   // User preferences
   const [userPreferences, setUserPreferences] = useState({
@@ -672,6 +677,152 @@ const CreateShortPage = () => {
     }
   };
 
+  // ============ ONE-CLICK DOWNLOAD + HIGHLIGHTS HANDLER ============
+  const handleOneClickDownloadAndHighlights = async () => {
+    if (!youtubeUrl) {
+      setError('Please enter a YouTube URL');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+    setProcessingStage('Fetching video info...');
+
+    try {
+      // Step 1: Get video info
+      const infoResponse = await axios.post('/api/youtube/info', {
+        youtubeUrl
+      }, {
+        timeout: 45000
+      });
+
+      setVideoInfo(infoResponse.data);
+      setVideoUrl(infoResponse.data.thumbnail || null);
+      setInputMode('youtube');
+      setChaptersAvailable(infoResponse.data.chapters || null);
+      setProcessingStage('Downloading video...');
+
+      // Step 2: Download video
+      const downloadId = 'oneclick-' + Date.now();
+      let progressPolling;
+      const pollProgress = async () => {
+        try {
+          const progressResponse = await axios.get(`/api/youtube/progress?id=${downloadId}`);
+          if (progressResponse.data.percent > 0) {
+            setDownloadProgress(progressResponse.data);
+            setProcessingStage(`Downloading... ${Math.round(progressResponse.data.percent)}%`);
+          }
+          if (progressResponse.data.percent < 100) {
+            progressPolling = setTimeout(pollProgress, 500);
+          }
+        } catch (err) {
+          console.error('Error polling progress:', err);
+        }
+      };
+
+      progressPolling = setTimeout(pollProgress, 500);
+
+      const downloadResponse = await axios.post('/api/youtube/download', {
+        id: downloadId,
+        youtubeUrl,
+        start: 0,
+        end: infoResponse.data.duration,
+        platform: null,
+        quality: 'hd' // Default to HD for one-click
+      }, {
+        timeout: 600000, // 10 minutes - downloads can take a while for long videos
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setDownloadProgress({ percent, eta: null, speed: null });
+          setProcessingStage(`Preparing download... ${percent}%`);
+        }
+      });
+
+      clearTimeout(progressPolling);
+
+      if (!downloadResponse.data.success) {
+        throw new Error('Download failed');
+      }
+
+      setVideoPathForExport(downloadResponse.data.videoPath);
+      if (downloadResponse.data.thumbnailPath) {
+        setVideoInfo(prev => ({
+          ...prev,
+          thumbnail: downloadResponse.data.thumbnailPath
+        }));
+      }
+
+      setProcessingStage('Analyzing for highlights...');
+      setDownloadProgress({ percent: 0, eta: null, speed: null, stage: 'Starting analysis...' });
+
+      // Step 3: Detect Q&A / Highlights
+      const qaDownloadId = 'qa-' + Date.now();
+
+      // Enhanced progress polling that shows detailed stage information
+      const pollQaProgress = async () => {
+        try {
+          const progressResponse = await axios.get(`/api/youtube/progress?id=${qaDownloadId}`);
+          const data = progressResponse.data;
+
+          if (data.percent > 0 || data.stage) {
+            setDownloadProgress({
+              percent: data.percent || 0,
+              eta: data.eta,
+              speed: data.speed,
+              stage: data.stage || ''
+            });
+            // Show stage text if available, otherwise just percentage
+            setProcessingStage(data.stage ? `${data.stage} (${data.percent}%)` : `Analyzing... ${Math.round(data.percent)}%`);
+          }
+
+          if (data.percent < 100) {
+            setTimeout(pollQaProgress, 500);
+          }
+        } catch (err) {
+          // Silently ignore polling errors - the main request will still complete
+          if (process.env.NODE_ENV === 'development') {
+            console.error('Error polling QA progress:', err);
+          }
+          setTimeout(pollQaProgress, 500);
+        }
+      };
+
+      setTimeout(pollQaProgress, 500);
+
+      const qaResponse = await axios.post('/api/youtube/detect-qa', {
+        id: qaDownloadId,
+        youtubeUrl
+      }, {
+        timeout: 600000 // 10 minutes - Whisper transcription can take a while
+      });
+
+      if (qaResponse.data.success) {
+        setQaPairs(qaResponse.data.qaPairs || []);
+        setStats(qaResponse.data.stats);
+        setQaDetected(true);
+
+        if (qaResponse.data.previewUrl) {
+          setVideoUrl(qaResponse.data.previewUrl);
+        }
+
+        if (qaResponse.data.videoPathForExport) {
+          setVideoPathForExport(qaResponse.data.videoPathForExport);
+        }
+      }
+
+      setDownloadProgress(null);
+      setProcessingStage('');
+      setIsLoading(false);
+
+    } catch (err) {
+      console.error('Error in one-click download:', err);
+      setError('One-click failed: ' + (err.response?.data?.error || err.message));
+      setIsLoading(false);
+      setProcessingStage('');
+      setDownloadProgress(null);
+    }
+  };
+
   // ============ SEGMENT HANDLERS (for uploaded podcasts AND YouTube) ============
   const toggleSegmentSelection = (segmentId) => {
     const newSelected = new Set(selectedSegments);
@@ -872,7 +1023,7 @@ const CreateShortPage = () => {
   const loadContentTypes = async () => {
     try {
       const response = await axios.get('/api/highlights/suggestions/content-types');
-      if (response.data.success) {
+      if (response.data.success && Array.isArray(response.data.contentTypes)) {
         setAvailableContentTypes(response.data.contentTypes);
       }
     } catch (err) {
@@ -1050,6 +1201,14 @@ const CreateShortPage = () => {
           <button className="icon-btn" onClick={() => setShowHistory(!showHistory)} title="History Panel">
             <BookmarkSimple size={20} />
           </button>
+          <button
+            className="icon-btn"
+            onClick={() => setShowSocialMediaManager(true)}
+            title="Social Media Manager"
+            disabled={!videoPathForExport && qaPairs.length === 0}
+          >
+            <ShareNetwork size={20} weight="fill" />
+          </button>
           <button className="cleanup-btn" onClick={handleCleanup} aria-label="Clear cache and downloads" title="Clear cache and downloads">
             <Trash weight="fill" size={20} />
           </button>
@@ -1098,6 +1257,17 @@ const CreateShortPage = () => {
               disabled={isLoading || downloadingQuality !== null || isProcessing}
             >
               {isLoading ? 'Loading...' : 'Get Video Info'}
+            </button>
+            <button
+              onClick={handleOneClickDownloadAndHighlights}
+              disabled={isLoading || downloadingQuality !== null || isProcessing}
+              style={{
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: 'white',
+                fontWeight: 600
+              }}
+            >
+              {isLoading ? 'Processing...' : 'Download + Highlights'}
             </button>
           </div>
         )}
@@ -1278,8 +1448,13 @@ const CreateShortPage = () => {
       {isProcessing && processingStage && (
         <div className="alert alert-warning">
           <strong><Hourglass size={16} weight="fill" style={{ marginRight: 8, verticalAlign: 'middle' }} /> {processingStage}</strong>
-          <div className="progress-bar"><div className="progress-fill"></div></div>
-          <small>This may take several minutes for large files. Please don't close this page.</small>
+          <div className="progress-bar">
+            <div
+              className="progress-fill"
+              style={{ width: `${downloadProgress?.percent || 0}%` }}
+            />
+          </div>
+          <small>{downloadProgress?.percent || 0}% complete - This may take several minutes for AI transcription. Please don't close this page.</small>
         </div>
       )}
 
@@ -1427,7 +1602,7 @@ const CreateShortPage = () => {
                       disabled={isProcessing}
                     >
                       <option value="">Select content type...</option>
-                      {availableContentTypes.map(type => (
+                      {Array.isArray(availableContentTypes) && availableContentTypes.map(type => (
                         <option key={type} value={type}>
                           {type.charAt(0).toUpperCase() + type.slice(1)}
                         </option>
@@ -1736,6 +1911,19 @@ const CreateShortPage = () => {
       )}
 
       {/* Video Preview with Q&A Segments (for uploads OR YouTube with Q&A detected) */}
+
+      {/* Social Media Manager Modal */}
+      {showSocialMediaManager && (
+        <div className="social-media-manager-modal">
+          <div className="social-media-manager-content">
+            <SocialMediaManager
+              videoPath={videoPathForExport}
+              transcript={qaPairs.length > 0 ? { qaPairs } : null}
+              onClose={() => setShowSocialMediaManager(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
