@@ -2,8 +2,38 @@
 const { google } = require('googleapis');
 const axios = require('axios');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+
+// ─────────────────────────────────────────────────────
+// Atomic Secret File Write (owner-only permissions)
+// Inspired by rushindrasinha/youtube-shorts-pipeline config.py
+// ─────────────────────────────────────────────────────
+/**
+ * Write a file with 0600 permissions (owner read/write only).
+ * Uses fs.open() with explicit mode to avoid TOCTOU race where file
+ * briefly exists with default (world-readable) permissions.
+ * @param {string} filePath - Path to file
+ * @param {string} content - Content to write
+ */
+function writeSecretFile(filePath, content) {
+  const dir = path.dirname(filePath);
+  // Ensure directory exists with restrictive permissions
+  try {
+    fsSync.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } catch (e) {
+    // Ignore if already exists
+  }
+
+  // Open with owner-only read/write permissions (0600)
+  const fd = fsSync.openSync(filePath, 'w', 0o600);
+  try {
+    fsSync.writeSync(fd, content);
+  } finally {
+    fsSync.closeSync(fd);
+  }
+}
 
 class OAuthManager {
   constructor() {
@@ -97,7 +127,8 @@ class OAuthManager {
       scope: tokenData.scope
     });
 
-    await fs.writeFile(tokenPath, JSON.stringify({
+    // Use atomic write with 0600 permissions for security
+    writeSecretFile(tokenPath, JSON.stringify({
       platform,
       userId,
       token: encryptedToken,

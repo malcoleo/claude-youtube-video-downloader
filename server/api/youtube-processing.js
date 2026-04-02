@@ -11,6 +11,45 @@ const PythonAIWrapper = require('../ai/python-wrapper');
 const videoProcessor = new VideoProcessor();
 const pythonAI = new PythonAIWrapper();
 
+// ─────────────────────────────────────────────────────
+// Retry Logic with Exponential Backoff
+// Inspired by rushindrasinha/youtube-shorts-pipeline retry.py
+// ─────────────────────────────────────────────────────
+/**
+ * Wrap a promise-returning function with retry logic and exponential backoff.
+ * @param {Function} fn - Async function to retry
+ * @param {number} maxRetries - Maximum retry attempts (default: 3)
+ * @param {number} baseDelay - Base delay in ms (default: 1000)
+ * @param {number} maxDelay - Maximum delay between retries (default: 30000)
+ * @returns {Promise} - Result of successful fn call or throws after all retries exhausted
+ */
+async function withRetry(fn, { maxRetries = 3, baseDelay = 1000, maxDelay = 30000 } = {}) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+
+      if (attempt <= maxRetries) {
+        // Exponential backoff: delay = baseDelay * 2^(attempt-1), capped at maxDelay
+        const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
+        // Add jitter (±25%) to prevent thundering herd
+        const jitter = delay * 0.25 * (Math.random() * 2 - 1);
+        const actualDelay = Math.max(delay + jitter, 100);
+
+        console.log(`[retry] Attempt ${attempt} failed: ${error.message}. Retrying in ${Math.round(actualDelay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, actualDelay));
+      } else {
+        console.error(`[retry] All ${maxRetries + 1} attempts failed. Last error: ${error.message}`);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 // Helper function to format seconds to HH:MM:SS
 function formatTime(seconds) {
   const hrs = Math.floor(seconds / 3600);
@@ -349,8 +388,11 @@ router.post('/download', async (req, res) => {
       downloadProgressMap[downloadId] = progress;
     };
 
-    // Get final progress after download completes
-    const downloadResult = await runYtDlp(downloadArgs, progressCallback);
+    // Get final progress after download completes with retry logic
+    const downloadResult = await withRetry(
+      () => runYtDlp(downloadArgs, progressCallback),
+      { maxRetries: 2, baseDelay: 2000 }
+    );
     const finalProgress = downloadResult.progress;
     console.log(`[DOWNLOAD] Final progress: ${finalProgress.percent}%`);
 
@@ -540,17 +582,20 @@ router.post('/detect-qa', async (req, res) => {
 
     console.log('[Q&A] Downloading video...');
     updateProgress(5, 'Downloading video...');
-    const downloadResult = await runYtDlp([
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-      '--merge-output-format', 'mp4',
-      '--output', `"${tempFilePath}.%(ext)s"`,
-      '--no-warnings',
-      '--progress',
-      `"${youtubeUrl}"`
-    ], (progress) => {
-      // Scale download progress from 5% to 40%
-      updateProgress(5 + (progress.percent * 0.35), 'Downloading video...');
-    });
+    const downloadResult = await withRetry(
+      () => runYtDlp([
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        '--merge-output-format', 'mp4',
+        '--output', `"${tempFilePath}.%(ext)s"`,
+        '--no-warnings',
+        '--progress',
+        `"${youtubeUrl}"`
+      ], (progress) => {
+        // Scale download progress from 5% to 40%
+        updateProgress(5 + (progress.percent * 0.35), 'Downloading video...');
+      }),
+      { maxRetries: 2, baseDelay: 2000 }
+    );
 
     const downloadedFile = tempFilePath + '.mp4';
 
@@ -1020,3 +1065,4 @@ module.exports = router;
 module.exports.breakDownLongChapters = breakDownLongChapters;
 module.exports.isValidYouTubeUrl = isValidYouTubeUrl;
 module.exports.normalizeYouTubeUrl = normalizeYouTubeUrl;
+module.exports.withRetry = withRetry;
