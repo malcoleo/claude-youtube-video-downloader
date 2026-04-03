@@ -18,6 +18,9 @@ import json
 import subprocess
 import os
 
+# Use ffmpeg-full for drawtext filter support
+FFMPEG_PATH = os.environ.get('FFMPEG_PATH', '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg')
+
 
 def compose_end_frame_cta(
     input_video_path,
@@ -47,7 +50,8 @@ def compose_end_frame_cta(
     """
     # Get video info
     probe_cmd = [
-        'ffprobe', '-v', 'quiet',
+        FFMPEG_PATH.replace('ffmpeg', 'ffprobe'),
+        '-v', 'quiet',
         '-print_format', 'json',
         '-show_format', '-show_streams',
         input_video_path
@@ -78,7 +82,7 @@ def compose_end_frame_cta(
     )
 
     cta_cmd = [
-        'ffmpeg',
+        FFMPEG_PATH,
         '-f', 'lavfi',
         '-i', f"color=c={gradient_start}:s={width}x{height}:d={duration}",
         '-f', 'lavfi',
@@ -100,7 +104,7 @@ def compose_end_frame_cta(
         # Fallback: simpler CTA generation (no gradient, just solid color)
         print(f"CTA filter failed, using fallback: {result.stderr}", file=sys.stderr)
         cta_cmd = [
-            'ffmpeg',
+            FFMPEG_PATH,
             '-f', 'lavfi',
             '-i', f"color=c={gradient_start}:s={width}x{height}:d={duration}",
             '-f', 'lavfi',
@@ -125,7 +129,7 @@ def compose_end_frame_cta(
         f.write(f"file '{os.path.abspath(temp_cta_path)}'\n")
 
     concat_cmd = [
-        'ffmpeg',
+        FFMPEG_PATH,
         '-f', 'concat',
         '-safe', '0',
         '-i', concat_list_path,
@@ -141,7 +145,7 @@ def compose_end_frame_cta(
         # Fallback: re-encode concat
         print(f"Direct concat failed, using re-encode: {result.stderr}", file=sys.stderr)
         concat_cmd = [
-            'ffmpeg',
+            FFMPEG_PATH,
             '-f', 'concat',
             '-safe', '0',
             '-i', concat_list_path,
