@@ -20,6 +20,7 @@ import os
 
 # Use ffmpeg-full for drawtext filter support
 FFMPEG_PATH = os.environ.get('FFMPEG_PATH', '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg')
+FFPROBE_PATH = os.environ.get('FFPROBE_PATH', '/opt/homebrew/opt/ffmpeg-full/bin/ffprobe')
 
 
 def compose_end_frame_cta(
@@ -50,7 +51,7 @@ def compose_end_frame_cta(
     """
     # Get video info
     probe_cmd = [
-        FFMPEG_PATH.replace('ffmpeg', 'ffprobe'),
+        FFPROBE_PATH,
         '-v', 'quiet',
         '-print_format', 'json',
         '-show_format', '-show_streams',
