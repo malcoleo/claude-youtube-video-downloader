@@ -65,8 +65,9 @@ class PythonAIWrapper {
       ];
 
       // Add word-level timestamps flag for subtitle engine
+      // Note: whisper.cpp uses --output-words for word-level timestamps (not --word-timestamps)
       if (includeWordTimestamps) {
-        whisperArgs.push('--word-timestamps');
+        whisperArgs.push('--output-words');
       }
 
       whisperArgs.push(audioPath);
@@ -97,11 +98,11 @@ class PythonAIWrapper {
         console.log(`JSON output verified at ${jsonOutputPath}`);
 
         // Convert whisper output to qa-detector format using execFileSync
-        const pythonArgs = ['-u', this.whisperToQaPath];
+        // Note: file path must come BEFORE --words flag for argparse compatibility
+        const pythonArgs = ['-u', this.whisperToQaPath, jsonOutputPath];
         if (includeWordTimestamps) {
           pythonArgs.push('--words');
         }
-        pythonArgs.push(jsonOutputPath);
         console.log(`Running whisper-to-qa.py with args: ${pythonArgs.join(' ')}...`);
         const pythonOutput = execFileSync('python3', pythonArgs, {
           encoding: 'utf8',

@@ -103,15 +103,18 @@ def convert_whisper_output(whisper_json_path, include_words=False):
                         continue
 
                     word_offsets = word_info.get('offsets', {})
-                    word_start = word_offsets.get('from', 0) / 1000.0
-                    word_end = word_offsets.get('to', 0) / 1000.0
+                    # Convert from milliseconds to seconds
+                    # Apply -0.15s offset to compensate for whisper.cpp latency
+                    # This makes subtitles appear slightly earlier,同步 with speech
+                    word_start = word_offsets.get('from', 0) / 1000.0 - 0.15
+                    word_end = word_offsets.get('to', 0) / 1000.0 - 0.10
 
                     all_words.append({
                         'word': word_text,
-                        'start': word_start,
-                        'end': word_end,
+                        'start': max(0, word_start),  # Ensure non-negative
+                        'end': max(0, word_end),
                         'confidence': word_info.get('probability', 1.0)
-                    })
+                    }) if word_end > word_start else None
             else:
                 # Fall back to approximation
                 approx_words = approximate_word_timestamps(text, start, end)

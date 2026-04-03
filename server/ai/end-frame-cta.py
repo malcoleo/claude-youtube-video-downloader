@@ -67,26 +67,25 @@ def compose_end_frame_cta(
 
     print(f"Video dimensions: {width}x{height}, Duration: {duration_input}s", file=sys.stderr)
 
-    # Build FFmpeg filter for gradient background with text
-    # Using color gradient and text overlay
-    cta_filter = (
-        f"color=c={gradient_start}:s={width}x{height}:d={duration}, "
-        f"gradient0=color={gradient_end}:point=1:direction=vertical, "
-        f"drawtext=text='{cta_text}':fontfile=/Library/Fonts/Arial.ttf:"
-        f"fontsize=48:fontcolor={text_color}:x=(w-text_w)/2:y=(h-text_h)/2:"
-        f"fade=in:st=0:d={fade_in_duration}"
-    )
-
     # Create CTA video
     temp_cta_path = input_video_path.replace('.mp4', '-cta-temp.mp4')
+
+    # Build FFmpeg filter for gradient background with text
+    # Using simple color source with drawtext overlay
+    cta_filter = (
+        f"drawtext=text='{cta_text}':fontfile=/Library/Fonts/Arial.ttf:"
+        f"fontsize=48:fontcolor={text_color}:x=(w-text_w)/2:y=(h-text_h)/2"
+    )
 
     cta_cmd = [
         'ffmpeg',
         '-f', 'lavfi',
         '-i', f"color=c={gradient_start}:s={width}x{height}:d={duration}",
-        '-vf', cta_filter,
         '-f', 'lavfi',
-        '-i', f"anullsrc=channel_layout=stereo:sample_rate=44100",
+        '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-vf', cta_filter,
+        '-map', '0:v',
+        '-map', '1:a',
         '-t', str(duration),
         '-c:v', 'libx264',
         '-c:a', 'aac',
@@ -98,15 +97,17 @@ def compose_end_frame_cta(
 
     result = subprocess.run(cta_cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        # Fallback: simpler CTA generation
+        # Fallback: simpler CTA generation (no gradient, just solid color)
         print(f"CTA filter failed, using fallback: {result.stderr}", file=sys.stderr)
         cta_cmd = [
             'ffmpeg',
             '-f', 'lavfi',
             '-i', f"color=c={gradient_start}:s={width}x{height}:d={duration}",
-            '-vf', f"drawtext=text='{cta_text}':fontfile=/Library/Fonts/Arial.ttf:fontsize=48:fontcolor={text_color}:x=(w-text_w)/2:y=(h-text_h)/2",
             '-f', 'lavfi',
             '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+            '-vf', f"drawtext=text='{cta_text}':fontfile=/Library/Fonts/Arial.ttf:fontsize=48:fontcolor={text_color}:x=(w-text_w)/2:y=(h-text_h)/2",
+            '-map', '0:v',
+            '-map', '1:a',
             '-t', str(duration),
             '-c:v', 'libx264',
             '-c:a', 'aac',

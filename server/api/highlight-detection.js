@@ -14,6 +14,9 @@ const PlatformOptimizer = require('../utils/platform-optimizer');
 const VideoCache = require('../utils/video-cache');
 const FFmpegOptimizer = require('../utils/ffmpeg-optimizer');
 
+// Use ffmpeg-full for libass support (ASS subtitle rendering)
+const FFMPEG_PATH = '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg';
+
 const videoProcessor = new VideoProcessor();
 const pythonAI = new PythonAIWrapper();
 const clipAnalytics = new ClipAnalytics();
@@ -63,8 +66,8 @@ function parseFfmpegCommand(cmd) {
     args.push(current);
   }
 
-  // Remove 'ffmpeg' if it's the first argument
-  if (args[0] === 'ffmpeg') {
+  // Remove 'ffmpeg' or FFMPEG_PATH if it's the first argument
+  if (args[0] === 'ffmpeg' || args[0] === FFMPEG_PATH) {
     args.shift();
   }
 
@@ -129,14 +132,14 @@ async function downloadMusic(url) {
  * @param {string} outputAssPath - Path to output ASS subtitle file
  * @returns {Promise<string|null>} - Path to ASS file or null on failure
  */
-async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath) {
+async function generateSubtitlesForClip(clipVideoPath, outputAssPath) {
   try {
     // Extract audio from clip for transcription
     const tempAudioPath = clipVideoPath.replace('.mp4', '-audio.wav');
 
     console.log('Extracting audio for subtitle transcription...');
     await new Promise((resolve, reject) => {
-      execFile('ffmpeg', ['-i', clipVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath, '-y'], (err, stdout, stderr) => {
+      execFile(FFMPEG_PATH, ['-i', clipVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath, '-y'], (err, stdout, stderr) => {
         if (err) {
           console.error('Audio extraction for subtitles:', err);
           reject(err);
@@ -156,26 +159,23 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, outputAssPath)
       return null;
     }
 
-    // Adjust timestamps to account for clip start offset
-    // Timestamps should be relative to the start of the clip, not the original video
-    const adjustedWords = transcript.words.map(word => ({
-      ...word,
-      start: word.start - startTime,
-      end: word.end - startTime
-    }));
+    // Note: Audio is extracted from the CLIP itself (not the full video),
+    // so whisper timestamps are already relative to clip start (starting from 0).
+    // No timestamp adjustment needed - just pass words directly to subtitle renderer.
+    const wordsForSubtitle = transcript.words;
 
-    // Write adjusted words to temp JSON for caption-generator.py
+    // Write words to temp JSON for subtitle-renderer.py
     const tempWordsPath = clipVideoPath.replace('.mp4', '-words.json');
-    fs.writeFileSync(tempWordsPath, JSON.stringify(adjustedWords, null, 2));
+    fs.writeFileSync(tempWordsPath, JSON.stringify(wordsForSubtitle, null, 2));
 
-    // Generate ASS subtitles using caption-generator.py
+    // Generate ASS subtitles using subtitle-renderer.py (Hormozi-style)
     console.log('Generating Hormozi-style subtitles...');
-    const captionGeneratorPath = require('path').join(__dirname, '../ai/caption-generator.py');
+    const subtitleRendererPath = require('path').join(__dirname, '../ai/subtitle-renderer.py');
 
     await new Promise((resolve, reject) => {
-      execFile('python3', ['-u', captionGeneratorPath, tempWordsPath, outputAssPath], (err, stdout, stderr) => {
+      execFile('python3', ['-u', subtitleRendererPath, tempWordsPath, outputAssPath], (err, stdout, stderr) => {
         if (err) {
-          console.error('Caption generator error:', err);
+          console.error('Subtitle renderer error:', err);
           reject(err);
         } else {
           console.log('Subtitle generation complete');
@@ -644,7 +644,7 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
       audioPath = videoPath.replace(/\.[^.]+$/, '.wav');
 
       await new Promise((resolve, reject) => {
-        execFile('ffmpeg', ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioPath, '-y'], (err, stdout, stderr) => {
+        execFile(FFMPEG_PATH, ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioPath, '-y'], (err, stdout, stderr) => {
           if (err) {
             console.error('FFmpeg audio extraction error:', err);
             reject(err);
@@ -702,7 +702,7 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
 
         await new Promise((resolve, reject) => {
           // Create 480p preview with lower bitrate for smooth scrubbing
-          execFile('ffmpeg', ['-i', videoPath, '-vf', 'scale=854:480', '-c:v', 'libx264', '-preset', 'fast', '-crf', '28', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', previewPath, '-y'], (err, stdout, stderr) => {
+          execFile(FFMPEG_PATH, ['-i', videoPath, '-vf', 'scale=854:480', '-c:v', 'libx264', '-preset', 'fast', '-crf', '28', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', previewPath, '-y'], (err, stdout, stderr) => {
             if (err) {
               console.error('Preview generation error:', err);
               reject(err);
@@ -937,7 +937,7 @@ router.post('/video/export-clips', async (req, res) => {
       if (addSubtitles) {
         assPath = path.join(exportDir, `${safeName}-${timestamp}.ass`);
         console.log(`Generating subtitles for clip ${i + 1}/${segments.length}...`);
-        await generateSubtitlesForClip(actualVideoPath, segment.start, assPath);
+        await generateSubtitlesForClip(actualVideoPath, assPath);
       }
 
       // Reuse the base crop filter for all segments (already analyzed the full video)
@@ -977,7 +977,9 @@ router.post('/video/export-clips', async (req, res) => {
         // Add subtitle filter if ASS file exists
         if (assPath && fs.existsSync(assPath)) {
           const assPathAbs = path.resolve(assPath);
-          filters.push(`ass='${assPathAbs}'`);
+          // Escape colons in path for FFmpeg ass filter (required on macOS/FreeType)
+          const escapedAssPath = assPathAbs.replace(/:/g, '\\:');
+          filters.push(`ass=${escapedAssPath}`);
           console.log(`  Subtitles: ${assPathAbs}`);
         }
 
@@ -1000,27 +1002,29 @@ router.post('/video/export-clips', async (req, res) => {
         // Apply combined filters if any
         let ffmpegCmd;
 
-        // Determine resolution dimensions
+        // Determine resolution dimensions based on format
+        // Vertical formats (tiktok, reels, shorts) use 1080x1920, landscape uses 1920x1080
+        const isVerticalFormat = ['tiktok', 'reels', 'shorts'].includes(format);
         const resolutionMap = {
-          '720p': '1280x720',
-          '1080p': '1920x1080',
-          '1440p': '2560x1440',
-          '2160p': '3840x2160'
+          '720p': isVerticalFormat ? '720x1280' : '1280x720',
+          '1080p': isVerticalFormat ? '1080x1920' : '1920x1080',
+          '1440p': isVerticalFormat ? '1440x2560' : '2560x1440',
+          '2160p': isVerticalFormat ? '2160x3840' : '3840x2160'
         };
-        const [width, height] = resolutionMap[resolution]?.split('x') || [1920, 1080];
+        const [width, height] = resolutionMap[resolution]?.split('x') || (isVerticalFormat ? [1080, 1920] : [1920, 1080]);
 
         if (filters.length > 0) {
           const filterString = filters.join(',');
           if (watermarkUrl) {
             // For watermark, we need a more complex command with input for the watermark
-            ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -filter_complex "[0:v]${filterString.substring(0, filterString.lastIndexOf(','))};[0:a]volume=${1 + (volumeAdjustment/20)}[aout]" -map "[out]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
+            ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -filter_complex "[0:v]${filterString.substring(0, filterString.lastIndexOf(','))};[0:a]volume=${1 + (volumeAdjustment/20)}[aout]" -map "[out]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
           } else {
             // For regular filters without watermark
-            ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -vf "${filterString}" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -af "volume=${1 + (volumeAdjustment/20)}" -c:a aac -y "${baseOutputPath}"`;
+            ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -vf "${filterString}" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -af "volume=${1 + (volumeAdjustment/20)}" -c:a aac -y "${baseOutputPath}"`;
           }
         } else {
           // No filters case
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -af "volume=${1 + (volumeAdjustment/20)}" -c:a aac -y "${baseOutputPath}"`;
+          ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -af "volume=${1 + (volumeAdjustment/20)}" -c:a aac -y "${baseOutputPath}"`;
         }
 
         // Add background music if provided
@@ -1041,21 +1045,21 @@ router.post('/video/export-clips', async (req, res) => {
 
             // Create a more sophisticated command for all features
             if (watermarkUrl) {
-              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -i "${bgMusicUrl}" -filter_complex "[0:v]${videoFilters.substring(0, videoFilters.indexOf('overlay') > 0 ? videoFilters.indexOf('overlay') : videoFilters.length)}[filtered_v];[filtered_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${mainVolume}[main_a];[2:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
+              ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -i "${bgMusicUrl}" -filter_complex "[0:v]${videoFilters.substring(0, videoFilters.indexOf('overlay') > 0 ? videoFilters.indexOf('overlay') : videoFilters.length)}[filtered_v];[filtered_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${mainVolume}[main_a];[2:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
             } else {
-              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${bgMusicUrl}" -filter_complex "[0:v]${videoFilters}[vout];[0:a]volume=${mainVolume}[main_a];[1:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
+              ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${bgMusicUrl}" -filter_complex "[0:v]${videoFilters}[vout];[0:a]volume=${mainVolume}[main_a];[1:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -s ${width}x${height} -c:a aac -y "${baseOutputPath}"`;
             }
           } else {
             // No video filters, just add watermark and audio
             if (watermarkUrl) {
-              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -i "${bgMusicUrl}" -filter_complex "[0:v]scale=${width}:${height}[scaled_v];[scaled_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${mainVolume}[main_a];[2:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
+              ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -i "${bgMusicUrl}" -filter_complex "[0:v]scale=${width}:${height}[scaled_v];[scaled_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${mainVolume}[main_a];[2:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
             } else {
-              ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${bgMusicUrl}" -filter_complex "[0:v]scale=${width}:${height}[vout];[0:a]volume=${mainVolume}[main_a];[1:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
+              ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${bgMusicUrl}" -filter_complex "[0:v]scale=${width}:${height}[vout];[0:a]volume=${mainVolume}[main_a];[1:a]volume=${volumeRatio},afade=t=out:st=${duration-2}:d=2[bg_a];[main_a][bg_a]amix=inputs=2:duration=first[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
             }
           }
         } else if (watermarkUrl && filters.length === 0) {
           // Just watermark and scaling without other filters
-          ffmpegCmd = `ffmpeg -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -filter_complex "[0:v]scale=${width}:${height}[scaled_v];[scaled_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${1 + (volumeAdjustment/20)}[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
+          ffmpegCmd = `${FFMPEG_PATH} -ss ${segment.start} -t ${duration} -i "${actualVideoPath}" -i "${watermarkUrl}" -filter_complex "[0:v]scale=${width}:${height}[scaled_v];[scaled_v][1:v]overlay=${watermarkPositionMap[watermarkPosition || 'bottom-right']}[vout];[0:a]volume=${1 + (volumeAdjustment/20)}[aout]" -map "[vout]" -map "[aout]" -c:v libx264 -b:v ${bitrate}M -c:a aac -y "${baseOutputPath}"`;
         }
 
         console.log(`Exporting clip ${i + 1}/${segments.length}:`);
@@ -1066,7 +1070,7 @@ router.post('/video/export-clips', async (req, res) => {
 
         // Parse ffmpegCmd into arguments for execFile - split on spaces but respect quoted strings
         const ffmpegArgs = parseFfmpegCommand(ffmpegCmd);
-        execFile('ffmpeg', ffmpegArgs, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => { // 50MB for video operations
+        execFile(FFMPEG_PATH, ffmpegArgs, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout, stderr) => { // 50MB for video operations
           if (err) {
             console.error('Clip export error:', err);
             console.error('FFmpeg stderr:', stderr);
@@ -1286,7 +1290,7 @@ podcastRouter.post('/detect', podcastUpload.single('video'), async (req, res) =>
       audioPath = videoPath.replace(/\.[^.]+$/, '.wav');
 
       await new Promise((resolve, reject) => {
-        execFile('ffmpeg', ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioPath, '-y'], (err, stdout, stderr) => {
+        execFile(FFMPEG_PATH, ['-i', videoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioPath, '-y'], (err, stdout, stderr) => {
           if (err) {
             console.error('FFmpeg audio extraction error:', err);
             reject(err);
@@ -1460,7 +1464,7 @@ router.post('/video/generate-thumbnail', async (req, res) => {
     console.log('Generating thumbnail with FFmpeg...');
 
     await new Promise((resolve, reject) => {
-      execFile('ffmpeg', ffmpegArgs, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
+      execFile(FFMPEG_PATH, ffmpegArgs, { maxBuffer: 1024 * 1024 * 100 }, (err, stdout, stderr) => {
         if (err) {
           console.error('Thumbnail generation error:', err);
           console.error('FFmpeg stderr:', stderr);
@@ -1491,7 +1495,7 @@ router.post('/video/generate-thumbnail', async (req, res) => {
       const position = watermarkPositions[watermarkPosition] || watermarkPositions['bottom-right'];
 
       await new Promise((resolve, reject) => {
-        execFile('ffmpeg', ['-i', thumbnailPath, '-i', watermarkPath, '-filter_complex', `[0:v][1:v]overlay=${position}`, '-y', watermarkedThumbnailPath], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => { // 10MB for thumbnail operations
+        execFile(FFMPEG_PATH, ['-i', thumbnailPath, '-i', watermarkPath, '-filter_complex', `[0:v][1:v]overlay=${position}`, '-y', watermarkedThumbnailPath], { maxBuffer: 10 * 1024 * 1024 }, (err, stdout, stderr) => { // 10MB for thumbnail operations
           if (err) {
             console.error('Watermark application error:', err);
             console.error('FFmpeg stderr:', stderr);

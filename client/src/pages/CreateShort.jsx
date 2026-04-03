@@ -884,6 +884,18 @@ const CreateShortPage = () => {
         videoPath: videoPathForExport,
         segments: segmentsToExport,
         format: selectedFormat,
+        // Subtitles - Hormozi style word-by-word animation
+        addSubtitles: true,
+        subtitleStyle: {
+          type: 'hormozi',
+          animation: 'word-by-word',
+          textColor: '#FFFFFF',
+          backgroundColor: 'rgba(128, 128, 128, 0.8)',
+          backgroundPerWord: true,
+          position: 'center',
+          fontSize: 72,
+          fontFamily: 'Bebas Neue, Arial Black'
+        },
         // Branding options
         watermarkUrl: watermarkUrl,
         watermarkPosition: watermarkPosition,

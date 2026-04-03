@@ -16,34 +16,39 @@ import json
 import os
 
 
-# ASS style configuration - Hormozi style
+# ASS style configuration - Hormozi style for VERTICAL VIDEO (9:16 format)
+# User requirements: word-by-word animation, centered, white text with grey background per word
+# Font size reduced to 36 to fit longer words like "implication" within frame
+# Alignment: 5 = Middle Center (horizontally and vertically centered)
+# BackColour: &H80808080& = 50% transparent grey background per word
+# PlayRes set to 1080x1920 for portrait/vertical video format
 ASS_STYLE_CONFIG = """
 ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
+PlayResX: 1080
+PlayResY: 1920
 Timer: 100.0000
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 
-Style: Default,Bebas Neue,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2.0,0,3,2.5,0,2,10,10,100,1
-Style: Highlight,Bebas Neue,72,&H00FFD700,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2.0,0,3,2.5,0,2,10,10,100,1
-Style: Emoji,Noto Color Emoji,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,2,10,10,800,1
+Style: Default,Bebas Neue,36,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
+Style: Highlight,Bebas Neue,36,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
+Style: Emoji,Noto Color Emoji,36,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
 """
 
-# Fallback style if Bebas Neue not available
+# Fallback style if Bebas Neue not available (for vertical 9:16 format)
 ASS_STYLE_FALLBACK = """
 ScriptType: v4.00+
-PlayResX: 1920
-PlayResY: 1080
+PlayResX: 1080
+PlayResY: 1920
 Timer: 100.0000
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 
-Style: Default,Arial Black,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2.0,0,3,2.5,0,2,10,10,100,1
-Style: Highlight,Arial Black,72,&H00FFD700,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,2.0,0,3,2.5,0,2,10,10,100,1
-Style: Emoji,Noto Color Emoji,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,2,10,10,800,1
+Style: Default,Arial Black,36,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
+Style: Highlight,Arial Black,36,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
+Style: Emoji,Noto Color Emoji,36,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
 """
 
 
@@ -58,44 +63,33 @@ def format_ass_time(seconds):
 
 def create_karaoke_effect(words, style='Default'):
     """
-    Create ASS dialogue line with karaoke-style word-by-word animation.
-    Uses \\k tags for timing.
+    Create ASS dialogue lines with word-by-word animation.
+    Each word gets its own dialogue line with individual start/end times.
+    This creates the effect of words appearing one at a time as spoken.
 
-    Format: \\k{duration_in_centiseconds}word
+    Returns a list of dialogue entries, one per word.
     """
     if not words:
         return None
 
-    # Calculate start time
-    start_time = words[0]['start']
-
-    # Calculate end time (end of last word)
-    end_time = words[-1]['end']
-
-    # Build karaoke text
-    karaoke_parts = []
+    dialogues = []
     for word_data in words:
-        duration_centis = int((word_data['end'] - word_data['start']) * 100)
         word = word_data['word'].replace('{', '\\{').replace('}', '\\}')  # Escape braces
 
         if word_data.get('highlight') == 'strong':
             # Gold highlight for strong highlights (adjectives, verbs)
-            karaoke_parts.append(f"{{\\c&H00FFD700&\\k{duration_centis}}}{word}")
-        elif word_data.get('highlight') == 'normal':
-            # Slightly emphasized (keep white but could add slight effect)
-            karaoke_parts.append(f"{{\\k{duration_centis}}}{word}")
+            style_name = 'Highlight'
         else:
-            # Normal word
-            karaoke_parts.append(f"{{\\k{duration_centis}}}{word}")
+            style_name = style
 
-    dialogue_text = ''.join(karaoke_parts)
+        dialogues.append({
+            'start': word_data['start'],
+            'end': word_data['end'],
+            'text': word,
+            'style': style_name
+        })
 
-    return {
-        'start': start_time,
-        'end': end_time,
-        'text': dialogue_text,
-        'style': style
-    }
+    return dialogues
 
 
 def create_emoji_line(emoji_placement):
@@ -140,30 +134,12 @@ def generate_ass_subtitle(words_with_timestamps, emoji_placements=None, output_p
     # Build events
     events = []
 
-    # Group words into subtitle lines (max 15 seconds per line for readability)
-    current_line_words = []
-    current_line_start = None
-
+    # Create individual dialogue for each word (true word-by-word appearance)
     for word_data in words_with_timestamps:
-        if current_line_start is None:
-            current_line_start = word_data['start']
-            current_line_words = [word_data]
-        elif word_data['start'] - current_line_start < 15:  # 15 second max per line
-            current_line_words.append(word_data)
-        else:
-            # Finish current line, start new one
-            if current_line_words:
-                dialogue = create_karaoke_effect(current_line_words)
-                if dialogue:
-                    events.append(dialogue)
-            current_line_start = word_data['start']
-            current_line_words = [word_data]
-
-    # Don't forget the last line
-    if current_line_words:
-        dialogue = create_karaoke_effect(current_line_words)
-        if dialogue:
-            events.append(dialogue)
+        dialogue_result = create_karaoke_effect([word_data])
+        if dialogue_result:
+            # create_karaoke_effect now returns a list, even for single words
+            events.extend(dialogue_result)
 
     # Add emoji overlays
     if emoji_placements:

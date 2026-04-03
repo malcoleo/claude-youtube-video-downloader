@@ -29,8 +29,22 @@ const PORT = 5001; // Hardcoded port to avoid environment issues
 // Trust proxy for rate limiting (behind load balancer/proxy)
 app.set('trust proxy', 1);
 
-// Security middleware
-app.use(helmet());
+// Security middleware - configure CSP to allow YouTube thumbnails and local resources
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https://i.ytimg.com", "https://img.youtube.com", "blob:"],
+      connectSrc: ["'self'", "http://localhost:*", "https://*"],
+      mediaSrc: ["'self'", "blob:", "data:"],
+      frameSrc: ["'none'"],
+      objectSrc: ["'none'"]
+    }
+  }
+}));
 
 // Enhanced CORS configuration to support Safari and other browsers
 app.use(cors({

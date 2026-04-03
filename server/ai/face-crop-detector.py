@@ -334,17 +334,31 @@ def analyze_video_crop(video_path, start_time=0, duration=5):
         target_crop_width = int(height * 9 / 16)
         crop_width = target_crop_width
 
-    # Calculate crop position with padding to handle speaker movement
-    margin_factor = 0.35  # Tighter margin for better framing
-    if speaker_position == "left":
-        # Speaker is on left - crop more tightly on the right
-        crop_x = max(0, int(avg_x - target_crop_width * 0.75))
-    elif speaker_position == "right":
-        # Speaker is on right - give more room to the right
-        crop_x = max(0, int(avg_x - target_crop_width * 0.65))
-    else:  # center
-        # Speaker is centered - good margin for movement
-        crop_x = max(0, int(avg_x - target_crop_width * margin_factor))
+    # Calculate crop position - center the crop on the speaker's average position
+    # For 9:16 vertical crop from landscape video, center horizontally on speaker
+    if is_portrait:
+        # Portrait video: keep full height, calculate optimal crop width
+        crop_height = height
+        target_crop_width = int(height * 9 / 16)
+
+        # Center the crop on the speaker's x position
+        crop_x = int(avg_x - target_crop_width / 2)
+
+        # Ensure we don't crop more than necessary
+        if target_crop_width >= width:
+            target_crop_width = width
+            crop_width = width
+            crop_x = 0
+        else:
+            crop_width = target_crop_width
+    else:
+        # Landscape video: standard 9:16 crop centered on speaker
+        crop_height = height
+        target_crop_width = int(height * 9 / 16)
+        crop_width = target_crop_width
+
+        # Center the crop horizontally on the speaker's average x position
+        crop_x = int(avg_x - target_crop_width / 2)
 
     # Clamp to video bounds
     max_crop_x = width - crop_width
