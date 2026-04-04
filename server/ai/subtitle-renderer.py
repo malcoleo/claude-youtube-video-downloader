@@ -18,7 +18,8 @@ import os
 
 # ASS style configuration - Hormozi style for VERTICAL VIDEO (9:16 format)
 # User requirements: word-by-word animation, centered, white text with grey background per word
-# Font size reduced to 36 to fit longer words like "implication" within frame
+# Font size reduced to 28 to fit very long words like "Singaporean" within frame (11+ characters)
+# Spacing reduced to 1.0 to prevent letter overflow on long words
 # Alignment: 5 = Middle Center (horizontally and vertically centered)
 # BackColour: &H80808080& = 50% transparent grey background per word
 # PlayRes set to 1080x1920 for portrait/vertical video format
@@ -31,9 +32,9 @@ Timer: 100.0000
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 
-Style: Default,Bebas Neue,36,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
-Style: Highlight,Bebas Neue,36,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
-Style: Emoji,Noto Color Emoji,36,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
+Style: Default,Bebas Neue,28,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Highlight,Bebas Neue,28,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Emoji,Noto Color Emoji,28,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
 """
 
 # Fallback style if Bebas Neue not available (for vertical 9:16 format)
@@ -46,9 +47,9 @@ Timer: 100.0000
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 
-Style: Default,Arial Black,36,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
-Style: Highlight,Arial Black,36,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,2.0,0,3,2.0,0,5,10,10,100,1
-Style: Emoji,Noto Color Emoji,36,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
+Style: Default,Arial Black,28,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Highlight,Arial Black,28,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Emoji,Noto Color Emoji,28,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
 """
 
 
