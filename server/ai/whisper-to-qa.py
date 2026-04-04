@@ -106,8 +106,8 @@ def convert_whisper_output(whisper_json_path, include_words=False):
                     # Convert from milliseconds to seconds
                     # Apply -0.15s offset to compensate for whisper.cpp latency
                     # This makes subtitles appear slightly earlier,同步 with speech
-                    word_start = word_offsets.get('from', 0) / 1000.0 - 0.15
-                    word_end = word_offsets.get('to', 0) / 1000.0 - 0.10
+                    word_start = word_offsets.get('from', 0) / 1000.0
+                    word_end = word_offsets.get('to', 0) / 1000.0
 
                     all_words.append({
                         'word': word_text,
