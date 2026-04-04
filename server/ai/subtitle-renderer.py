@@ -18,7 +18,7 @@ import os
 
 # ASS style configuration - Hormozi style for VERTICAL VIDEO (9:16 format)
 # User requirements: word-by-word animation, centered, white text with grey background per word
-# Font size reduced to 28 to fit very long words like "Singaporean" within frame (11+ characters)
+# Base font size 28 with dynamic sizing per word length (longer words = smaller font)
 # Spacing reduced to 1.0 to prevent letter overflow on long words
 # Alignment: 5 = Middle Center (horizontally and vertically centered)
 # BackColour: &H80808080& = 50% transparent grey background per word
@@ -62,11 +62,60 @@ def format_ass_time(seconds):
     return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
 
 
+def get_dynamic_font_size(word, base_size=28, min_size=18, max_size=36):
+    """
+    Calculate font size based on word length.
+    Longer words get smaller fonts to fit within the 1080px width.
+
+    Args:
+        word: The word text
+        base_size: Base font size for medium words (default 28)
+        min_size: Minimum font for very long words (default 18)
+        max_size: Maximum font for very short words (default 36)
+
+    Returns:
+        Font size in pixels
+    """
+    word_len = len(word)
+
+    # Clean word - remove punctuation for length calculation
+    clean_word = ''.join(c for c in word if c.isalnum())
+    clean_len = len(clean_word)
+
+    if clean_len == 0:
+        return base_size
+
+    # Dynamic sizing based on word length
+    if clean_len <= 2:
+        # Very short words: "I", "a", "to", "of", "in"
+        return max_size
+    elif clean_len <= 4:
+        # Short words: "My", "the", "and" - scale 34-36
+        return max_size - ((clean_len - 1) * 0.5)
+    elif clean_len <= 6:
+        # Medium-short: "fellow", "people" - scale 30-33
+        return 33 - ((clean_len - 5) * 1.5)
+    elif clean_len <= 8:
+        # Medium: "Singapore" - scale 26-29
+        return 29 - ((clean_len - 7) * 1.5)
+    elif clean_len <= 10:
+        # Long: "Singaporeans" - scale 22-25
+        return 25 - ((clean_len - 9) * 1.5)
+    elif clean_len <= 12:
+        # Very long: "implications" - scale 20-21
+        return 21 - ((clean_len - 11) * 0.5)
+    else:
+        # Extremely long words: minimum size
+        return min_size
+
+
 def create_karaoke_effect(words, style='Default'):
     """
     Create ASS dialogue lines with word-by-word animation.
     Each word gets its own dialogue line with individual start/end times.
     This creates the effect of words appearing one at a time as spoken.
+
+    Uses dynamic font sizing based on word length - longer words appear smaller.
 
     Returns a list of dialogue entries, one per word.
     """
@@ -77,16 +126,23 @@ def create_karaoke_effect(words, style='Default'):
     for word_data in words:
         word = word_data['word'].replace('{', '\\{').replace('}', '\\}')  # Escape braces
 
+        # Calculate dynamic font size based on word length
+        font_size = get_dynamic_font_size(word_data['word'])
+
         if word_data.get('highlight') == 'strong':
             # Gold highlight for strong highlights (adjectives, verbs)
             style_name = 'Highlight'
         else:
             style_name = style
 
+        # Add inline font size override for dynamic sizing
+        # ASS format: {\fsXX} where XX is font size
+        word_with_style = f"{{\\fs{int(font_size)}}}{word}"
+
         dialogues.append({
             'start': word_data['start'],
             'end': word_data['end'],
-            'text': word,
+            'text': word_with_style,
             'style': style_name
         })
 
