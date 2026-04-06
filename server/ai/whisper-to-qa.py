@@ -84,8 +84,8 @@ def approximate_word_timestamps(text, segment_start, segment_end, segment_id=0):
 
         word_timestamps.append({
             'word': word,
-            'start': round(word_start, 3),  # Millisecond precision
-            'end': round(word_end, 3),      # Millisecond precision
+            'start': round(word_start, 2),  # Centisecond precision for ASS format
+            'end': round(word_end, 2),      # Centisecond precision for ASS format
             'segment_id': segment_id
         })
 

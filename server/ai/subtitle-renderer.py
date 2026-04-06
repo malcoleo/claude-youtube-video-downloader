@@ -55,12 +55,26 @@ Style: Emoji,Noto Color Emoji,42,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0
 
 
 def format_ass_time(seconds):
-    """Convert seconds to ASS time format: H:MM:SS.ccc (milliseconds)"""
+    """Convert seconds to ASS time format: H:MM:SS.cc (centiseconds - 2 digits)
+
+    ASS format specification requires centiseconds (hundredths of a second).
+    Using milliseconds (3 digits) causes FFmpeg to misparse timestamps.
+    """
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    millis = int((seconds % 1) * 1000)
-    return f"{hours}:{minutes:02d}:{secs:02d}.{millis:03d}"
+    centis = int(round((seconds % 1) * 100))
+    # Handle rounding edge case (99.5+ rounds to 100)
+    if centis >= 100:
+        centis = 0
+        secs += 1
+        if secs >= 60:
+            secs = 0
+            minutes += 1
+            if minutes >= 60:
+                minutes = 0
+                hours += 1
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
 
 
 def count_syllables(word):
