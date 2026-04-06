@@ -65,7 +65,7 @@ Complete implementation of Alex Hormozi-style dynamic caption engine with:
 - `/video/export-clips` endpoint updated with:
   - `addSubtitles` option - generates and burns Hormozi subtitles
   - `addEndFrame` option - adds 3-second CTA overlay
-- `generateSubtitlesForClip()` - extracts audio, transcribes, generates ASS
+- `generateSubtitlesForClip(clipVideoPath, startTime, endTime, outputAssPath)` - extracts audio from segment, transcribes, generates ASS
 - `addEndFrameToClip()` - calls end-frame-cta.py
 
 ## Pipeline Flow

@@ -129,17 +129,19 @@ async function downloadMusic(url) {
  * Generate Hormozi-style subtitles for a video clip.
  * @param {string} clipVideoPath - Path to the video clip
  * @param {number} startTime - Start time of the clip in the original video
+ * @param {number} endTime - End time of the clip in the original video
  * @param {string} outputAssPath - Path to output ASS subtitle file
  * @returns {Promise<string|null>} - Path to ASS file or null on failure
  */
-async function generateSubtitlesForClip(clipVideoPath, outputAssPath) {
+async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outputAssPath) {
   try {
-    // Extract audio from clip for transcription
+    // Extract audio from clip for transcription (using -ss and -t to extract only the segment)
     const tempAudioPath = clipVideoPath.replace('.mp4', '-audio.wav');
+    const duration = endTime - startTime;
 
-    console.log('Extracting audio for subtitle transcription...');
+    console.log(`Extracting audio for subtitle transcription (segment: ${startTime.toFixed(2)}s - ${endTime.toFixed(2)}s)...`);
     await new Promise((resolve, reject) => {
-      execFile(FFMPEG_PATH, ['-i', clipVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath, '-y'], (err, stdout, stderr) => {
+      execFile(FFMPEG_PATH, ['-ss', String(startTime), '-t', String(duration), '-i', clipVideoPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', tempAudioPath, '-y'], (err, stdout, stderr) => {
         if (err) {
           console.error('Audio extraction for subtitles:', err);
           reject(err);
@@ -937,7 +939,7 @@ router.post('/video/export-clips', async (req, res) => {
       if (addSubtitles) {
         assPath = path.join(exportDir, `${safeName}-${timestamp}.ass`);
         console.log(`Generating subtitles for clip ${i + 1}/${segments.length}...`);
-        await generateSubtitlesForClip(actualVideoPath, assPath);
+        await generateSubtitlesForClip(actualVideoPath, segment.start, segment.end, assPath);
       }
 
       // Reuse the base crop filter for all segments (already analyzed the full video)
