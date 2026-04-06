@@ -18,18 +18,22 @@ import sys
 import re
 
 
-def approximate_word_timestamps(text, segment_start, segment_end):
+def approximate_word_timestamps(text, segment_start, segment_end, segment_id=0):
     """
     Approximate word-level timestamps by distributing segment time
     proportionally across words.
+
+    Adds padding at segment boundaries to account for silence gaps
+    that whisper.cpp includes in segment timing.
 
     Args:
         text: Segment text
         segment_start: Segment start time in seconds
         segment_end: Segment end time in seconds
+        segment_id: ID of the segment (for grouping subtitles)
 
     Returns:
-        List of {word, start, end} dicts
+        List of {word, start, end, segment_id} dicts
     """
     # Extract words with their positions
     words = re.findall(r'\b\w+\b', text)
@@ -38,19 +42,55 @@ def approximate_word_timestamps(text, segment_start, segment_end):
         return []
 
     segment_duration = segment_end - segment_start
-    # Assume roughly equal time per word, with small gaps
-    time_per_word = segment_duration / len(words)
+
+    # whisper.cpp segments include ~100-200ms silence at start/end
+    # Remove padding from each end to focus on actual speech
+    padding = min(0.15, segment_duration * 0.1)  # 150ms or 10% of duration, whichever is smaller
+    speech_start = segment_start + padding
+    speech_end = segment_end - padding
+    speech_duration = speech_end - speech_start
+
+    # Ensure we have valid duration
+    if speech_duration <= 0:
+        speech_start = segment_start
+        speech_end = segment_end
+        speech_duration = segment_duration
+
+    # Calculate total weight based on word lengths
+    # Longer words get more time, but with diminishing returns
+    weights = []
+    for word in words:
+        word_len = len(word)
+        # Weight: 1.0 for short words, up to 2.0 for very long words
+        weight = 1.0 + min(1.0, word_len / 10)
+        weights.append(weight)
+
+    total_weight = sum(weights)
+
+    # Distribute time proportionally with small gaps between words
+    gap_per_word = min(0.05, speech_duration * 0.02)  # 50ms or 2% of duration
+    total_gap = gap_per_word * (len(words) - 1)
+    available_duration = speech_duration - total_gap
 
     word_timestamps = []
+    current_time = speech_start
+
     for i, word in enumerate(words):
-        word_start = segment_start + (i * time_per_word)
-        word_end = word_start + (time_per_word * 0.9)  # 90% duration, 10% gap
+        # Calculate word duration based on weight
+        word_duration = (weights[i] / total_weight) * available_duration
+
+        word_start = current_time
+        word_end = word_start + word_duration
 
         word_timestamps.append({
             'word': word,
-            'start': round(word_start, 2),
-            'end': round(word_end, 2)
+            'start': round(word_start, 3),  # Millisecond precision
+            'end': round(word_end, 3),      # Millisecond precision
+            'segment_id': segment_id
         })
+
+        # Add gap before next word
+        current_time = word_end + gap_per_word
 
     return word_timestamps
 
@@ -111,13 +151,14 @@ def convert_whisper_output(whisper_json_path, include_words=False):
 
                     all_words.append({
                         'word': word_text,
-                        'start': max(0, word_start),  # Ensure non-negative
+                        'start': max(0, word_start),
                         'end': max(0, word_end),
-                        'confidence': word_info.get('probability', 1.0)
-                    }) if word_end > word_start else None
+                        'confidence': word_info.get('probability', 1.0),
+                        'segment_id': i  # Track segment for grouping
+                    })
             else:
-                # Fall back to approximation
-                approx_words = approximate_word_timestamps(text, start, end)
+                # Fall back to approximation - pass segment_id
+                approx_words = approximate_word_timestamps(text, start, end, i)
                 all_words.extend(approx_words)
 
     output = {

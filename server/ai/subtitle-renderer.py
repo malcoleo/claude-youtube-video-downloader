@@ -19,12 +19,12 @@ import os
 
 # ASS style configuration - Hormozi style for VERTICAL VIDEO (9:16 format)
 # User requirements: word-by-word animation, centered, white text with grey background per word
-# Base font size 28 with dynamic sizing per word length (longer words = smaller font)
+# Base font size 42 with dynamic sizing per word length (longer words = smaller font)
 # Spacing reduced to 1.0 to prevent letter overflow on long words
 # Alignment: 5 = Middle Center (horizontally and vertically centered)
 # BackColour: &H80808080& = 50% transparent grey background per word
 # PlayRes set to 1080x1920 for portrait/vertical video format
-ASS_STYLE_CONFIG = """
+ASS_STYLE_CONFIG = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -33,13 +33,13 @@ Timer: 100.0000
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 
-Style: Default,Bebas Neue,28,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
-Style: Highlight,Bebas Neue,28,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
-Style: Emoji,Noto Color Emoji,28,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
+Style: Default,Bebas Neue,42,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Highlight,Bebas Neue,42,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Emoji,Noto Color Emoji,42,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
 """
 
 # Fallback style if Bebas Neue not available (for vertical 9:16 format)
-ASS_STYLE_FALLBACK = """
+ASS_STYLE_FALLBACK = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
@@ -48,19 +48,19 @@ Timer: 100.0000
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 
-Style: Default,Arial Black,28,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
-Style: Highlight,Arial Black,28,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
-Style: Emoji,Noto Color Emoji,28,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
+Style: Default,Arial Black,42,&H00FFFFFF,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Highlight,Arial Black,42,&H00FFD700,&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,5,10,10,100,1
+Style: Emoji,Noto Color Emoji,42,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,5,10,10,100,1
 """
 
 
 def format_ass_time(seconds):
-    """Convert seconds to ASS time format: H:MM:SS.cc (centiseconds)"""
+    """Convert seconds to ASS time format: H:MM:SS.ccc (milliseconds)"""
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    centis = int((seconds % 1) * 100)
-    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+    millis = int((seconds % 1) * 1000)
+    return f"{hours}:{minutes:02d}:{secs:02d}.{millis:03d}"
 
 
 def count_syllables(word):
@@ -125,12 +125,13 @@ def group_words_by_syllable(words):
     Group words by syllable count for better subtitle timing.
 
     Rules:
-    - 1-syllable words are grouped into pairs or triples (e.g., "My fellow")
+    - 1-syllable words are grouped into pairs (e.g., "we are", "in the")
     - Multi-syllable words (2+ syllables) stand alone for emphasis
+    - NEVER group across segment boundaries (sentence boundaries)
     - Groups preserve the start time of first word and end time of last word
 
     Args:
-        words: List of {'word': str, 'start': float, 'end': float, ...}
+        words: List of {'word': str, 'start': float, 'end': float, 'segment_id': int, ...}
 
     Returns:
         List of grouped words with combined timing
@@ -150,19 +151,31 @@ def group_words_by_syllable(words):
         })
 
     # Second pass: group 1-syllable words, keep multi-syllable solo
+    # IMPORTANT: Never group across segment boundaries
     grouped = []
     pending_group = []
+    last_segment_id = None
 
     for word_data in words_with_syllables:
+        current_segment_id = word_data.get('segment_id', 0)
+
+        # Check if we crossed a segment boundary
+        segment_changed = (last_segment_id is not None and
+                          current_segment_id != last_segment_id)
+
+        if segment_changed:
+            # Flush any pending group at segment boundary
+            if pending_group:
+                grouped.append(pending_group)
+                pending_group = []
+
         if word_data['syllables'] == 1:
             # Add to pending group
             pending_group.append(word_data)
 
-            # When we have 2-3 words, flush the group
-            # Prefer groups of 2 for better sync
+            # When we have 2 words, flush the group
+            # (groups of 2 sync better than groups of 3+)
             if len(pending_group) >= 2:
-                # Check if next word is also 1-syllable (look ahead)
-                # If so, we could make a group of 3, but 2 is better for sync
                 grouped.append(pending_group)
                 pending_group = []
         else:
@@ -174,6 +187,8 @@ def group_words_by_syllable(words):
 
             # Add multi-syllable word as solo
             grouped.append([word_data])
+
+        last_segment_id = current_segment_id
 
     # Flush any remaining pending group
     if pending_group:
@@ -191,6 +206,7 @@ def group_words_by_syllable(words):
                 'end': word_data['end'],
                 'highlight': word_data.get('highlight', 'normal'),
                 'syllables': word_data['syllables'],
+                'segment_id': word_data.get('segment_id', 0),
                 'is_group': False
             })
         else:
@@ -202,6 +218,7 @@ def group_words_by_syllable(words):
                 'end': group[-1]['end'],
                 'highlight': 'normal',  # Groups don't get special highlight
                 'syllables': sum(w['syllables'] for w in group),
+                'segment_id': group[0].get('segment_id', 0),
                 'is_group': True,
                 'word_count': len(group)
             })
@@ -209,16 +226,16 @@ def group_words_by_syllable(words):
     return result
 
 
-def get_dynamic_font_size(word, base_size=28, min_size=18, max_size=36):
+def get_dynamic_font_size(word, base_size=42, min_size=28, max_size=52):
     """
     Calculate font size based on word length.
     Longer words get smaller fonts to fit within the 1080px width.
 
     Args:
         word: The word text
-        base_size: Base font size for medium words (default 28)
-        min_size: Minimum font for very long words (default 18)
-        max_size: Maximum font for very short words (default 36)
+        base_size: Base font size for medium words (default 42)
+        min_size: Minimum font for very long words (default 28)
+        max_size: Maximum font for very short words (default 52)
 
     Returns:
         Font size in pixels
@@ -237,20 +254,20 @@ def get_dynamic_font_size(word, base_size=28, min_size=18, max_size=36):
         # Very short words: "I", "a", "to", "of", "in"
         return max_size
     elif clean_len <= 4:
-        # Short words: "My", "the", "and" - scale 34-36
+        # Short words: "My", "the", "and" - scale 48-52
         return max_size - ((clean_len - 1) * 0.5)
     elif clean_len <= 6:
-        # Medium-short: "fellow", "people" - scale 30-33
-        return 33 - ((clean_len - 5) * 1.5)
+        # Medium-short: "fellow", "people" - scale 44-47
+        return 47 - ((clean_len - 5) * 1.5)
     elif clean_len <= 8:
-        # Medium: "Singapore" - scale 26-29
-        return 29 - ((clean_len - 7) * 1.5)
+        # Medium: "Singapore" - scale 40-43
+        return 43 - ((clean_len - 7) * 1.5)
     elif clean_len <= 10:
-        # Long: "Singaporeans" - scale 22-25
-        return 25 - ((clean_len - 9) * 1.5)
+        # Long: "Singaporeans" - scale 36-39
+        return 39 - ((clean_len - 9) * 1.5)
     elif clean_len <= 12:
-        # Very long: "implications" - scale 20-21
-        return 21 - ((clean_len - 11) * 0.5)
+        # Very long: "implications" - scale 32-35
+        return 35 - ((clean_len - 11) * 0.5)
     else:
         # Extremely long words: minimum size
         return min_size
