@@ -56,3 +56,6 @@ Temporary Items/
 # Project specific
 testdisk.log
 .gstack/
+
+# Generated data
+data/clip-analytics/
