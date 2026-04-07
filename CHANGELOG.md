@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.0.3] - 2026-04-07
+
+### Security
+- **Critical**: Patched npm dependency vulnerabilities
+  - Updated lodash 4.17.23 → 4.18.1 (CVSS 8.1 code injection fix)
+  - Updated picomatch 2.3.1 → 2.3.2 (method injection fix)
+  - Updated brace-expansion 5.0.4 → 5.0.5 (DoS fix)
+  - Affected file: `package-lock.json`
+
+### Fixed
+- **Subtitle sync**: Fixed overlapping subtitles appearing simultaneously
+  - ASS timestamp format corrected from milliseconds to centiseconds (H:MM:SS.cc)
+  - FFmpeg was misparsing 3-digit timestamps, causing all subtitles to appear at 0:00:00.00
+  - Affected files: `server/ai/subtitle-renderer.py`, `server/ai/whisper-to-qa.py`
+- **Clip-specific subtitles**: Each exported clip now gets unique subtitles matching its segment
+  - Added `startTime` and `endTime` parameters to `generateSubtitlesForClip()`
+  - FFmpeg extracts audio from specific segment using `-ss` and `-t` flags
+  - Previously: all clips shared the same transcription from the full video
+  - Affected file: `server/api/highlight-detection.js`
+- **Font sizing**: Increased subtitle font size and improved dynamic scaling
+  - Base font size: 28px → 42px (50% larger)
+  - Dynamic sizing: 52px for short words, 28px for long words
+  - Affected file: `server/ai/subtitle-renderer.py`
+
 ## [0.1.0.2] - 2026-03-31
 
 ### Security
