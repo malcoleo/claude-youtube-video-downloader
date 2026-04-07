@@ -44,3 +44,16 @@ Key routing rules:
 - Design system, brand → invoke design-consultation
 - Visual audit, design polish → invoke design-review
 - Architecture review → invoke plan-eng-review
+
+## Auto-journal on /compact
+
+When the user runs `/compact` (context compaction), also offer to journal the session
+to Obsidian after compaction completes:
+
+1. **After `/compact` finishes**, ask: "Want to journal this session to Obsidian?"
+2. **If yes**, use `/obsidian` to create a note with:
+   - Session summary (what was built, decisions made, files changed)
+   - Key learnings or discoveries
+   - Any follow-ups or next steps
+   - Tag with `#session` and today's date
+3. **Link to daily note** — add a wiki link from the session note to today's daily note
