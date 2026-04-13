@@ -1,0 +1,137 @@
+/* client/src/components/QualitySelector.css */
+/* Quality Selector component styles */
+
+.quality-selector {
+  margin: 16px 0;
+}
+
+.quality-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.quality-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary, #292928);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.quality-selected {
+  font-size: 0.75rem;
+  color: var(--primary, #FF6B3F);
+  font-weight: 500;
+}
+
+.quality-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quality-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 14px;
+  border: 1.5px solid var(--border-color, #d6d6d4);
+  border-radius: 8px;
+  background: var(--card-bg, #fff);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 70px;
+}
+
+.quality-chip:hover:not(:disabled) {
+  border-color: var(--primary, #FF6B3F);
+  background: var(--primary-light, #FFECE6);
+  transform: translateY(-1px);
+}
+
+.quality-chip.selected {
+  border-color: var(--primary, #FF6B3F);
+  background: var(--primary, #FF6B3F);
+  color: white;
+}
+
+.quality-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quality-chip-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.quality-chip-desc {
+  font-size: 0.65rem;
+  opacity: 0.7;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.quality-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #787876);
+}
+
+/* Preset Selector */
+.quality-preset-selector {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-chip {
+  padding: 8px 16px;
+  border: 1.5px solid var(--border-color, #d6d6d4);
+  border-radius: 99px;
+  background: var(--card-bg, #fff);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preset-chip:hover:not(:disabled) {
+  border-color: var(--primary, #FF6B3F);
+  background: var(--primary-light, #FFECE6);
+}
+
+.preset-chip.selected {
+  border-color: var(--primary, #FF6B3F);
+  background: var(--primary, #FF6B3F);
+  color: white;
+}
+
+.preset-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Dark mode support */
+.dark-mode .quality-chip,
+.dark-mode .preset-chip {
+  background: var(--bg-secondary, #2a2a29);
+  border-color: var(--border-dark, #3a3a38);
+  color: var(--text-primary, #f5f5f4);
+}
+
+.dark-mode .quality-chip:hover:not(:disabled),
+.dark-mode .preset-chip:hover:not(:disabled) {
+  background: rgba(255, 107, 63, 0.15);
+}
+
+.dark-mode .quality-chip.selected,
+.dark-mode .preset-chip.selected {
+  background: var(--primary, #FF6B3F);
+}

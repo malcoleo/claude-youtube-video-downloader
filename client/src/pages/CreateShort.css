@@ -2296,3 +2296,57 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Bulk URL Input Toggle */
+.url-input-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.url-input-header input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bulk-toggle-btn {
+  padding: 12px 16px;
+  background: var(--neutral-200);
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--neutral-700);
+  cursor: pointer;
+  transition: all var(--transition-micro) var(--easing-enter);
+  white-space: nowrap;
+}
+
+.bulk-toggle-btn:hover {
+  background: var(--neutral-300);
+  border-color: var(--neutral-400);
+}
+
+.bulk-toggle-btn:active {
+  background: var(--neutral-400);
+}
+
+.single-url-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+/* Quality Selector Container */
+.quality-selector-container {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--neutral-100);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--neutral-200);
+}
+
+.dark-mode .quality-selector-container {
+  background: var(--neutral-800);
+  border-color: var(--neutral-700);
+}

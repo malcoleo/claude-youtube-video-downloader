@@ -33,6 +33,8 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { useDragAndDrop } from '../hooks/useDragAndDrop';
 import { getCurrentUserId } from '../utils/userUtils';
 import SocialMediaManager from '../components/SocialMediaManager';
+import BulkUrlInput from '../components/BulkUrlInput';
+import QualitySelector from '../components/QualitySelector';
 
 // eslint-disable-next-line no-unused-vars
 import './CreateShort.css';
@@ -95,6 +97,14 @@ const CreateShortPage = () => {
 
   // Social media manager state
   const [showSocialMediaManager, setShowSocialMediaManager] = useState(false);
+
+  // Bulk URL input state
+  const [showBulkUrlInput, setShowBulkUrlInput] = useState(false);
+  const [bulkUrlData, setBulkUrlData] = useState(null);
+
+  // Quality selector state
+  const [selectedQuality, setSelectedQuality] = useState(null);
+  const [availableFormats, setAvailableFormats] = useState([]);
 
   // User preferences
   const [userPreferences, setUserPreferences] = useState({
@@ -351,8 +361,8 @@ const CreateShortPage = () => {
 
     try {
       // Make the request with increased timeout to accommodate yt-dlp processing
-      const response = await axios.post('/api/youtube/info', {
-        youtubeUrl
+      const response = await axios.post('/api/media/info', {
+        url: youtubeUrl
       }, {
         timeout: 45000  // 45 second timeout for yt-dlp processing
       });
@@ -365,8 +375,12 @@ const CreateShortPage = () => {
       setProcessingStage('');
       // Check if chapters are available
       setChaptersAvailable(response.data.chapters || null);
+      // Store available formats for quality selector
+      if (response.data.formats && response.data.formats.length > 0) {
+        setAvailableFormats(response.data.formats);
+      }
     } catch (err) {
-      console.error('Error getting YouTube info:', err);
+      console.error('Error getting media info:', err);
       console.error('Error details:', {
         message: err.message,
         code: err.code,
@@ -380,14 +394,14 @@ const CreateShortPage = () => {
 
       // Handle different types of errors appropriately
       if (err.code === 'ECONNABORTED' || err.code === 'ETIMEDOUT') {
-        setError('Request timed out. YouTube processing took too long. Please try again with a shorter video or check your internet connection.');
+        setError('Request timed out. Processing took too long. Please try again with a shorter video or check your internet connection.');
       } else if (err.response && err.response.data) {
         if (typeof err.response.data === 'object' && err.response.data.suggestions) {
           // Display suggestions to help user fix the URL
           const suggestionsText = Array.isArray(err.response.data.suggestions)
             ? err.response.data.suggestions.join('\n• ')
             : String(err.response.data.suggestions);
-          setError(`Invalid YouTube URL. Suggestions:\n• ${suggestionsText}`);
+          setError(`Invalid URL. Suggestions:\n• ${suggestionsText}`);
         } else if (typeof err.response.data === 'object' && err.response.data.error) {
           // Display the server error message
           setError(String(err.response.data.error));
@@ -396,14 +410,14 @@ const CreateShortPage = () => {
           setError(err.response.data);
         } else {
           // Fallback to generic message but with more detail
-          setError('Failed to get YouTube video info. Server returned an error. Please check the URL and try again.');
+          setError('Failed to get video info. Server returned an error. Please check the URL and try again.');
         }
       } else if (err.request) {
         // Network error - no response received
         setError('Network error: Could not connect to server. Please check your internet connection and ensure the server is running.');
       } else {
         // Something else happened
-        setError('Failed to get YouTube video info: ' + err.message);
+        setError('Failed to get video info: ' + err.message);
       }
 
       setIsLoading(false);
@@ -1256,31 +1270,50 @@ const CreateShortPage = () => {
         {/* YouTube URL Input */}
         {inputMode === 'youtube' && (
           <div className="url-input-container">
-            <input
-              type="text"
-              placeholder="Paste YouTube URL here..."
-              value={youtubeUrl}
-              onChange={(e) => setYoutubeUrl(e.target.value)}
-              disabled={isLoading || downloadingQuality !== null || isProcessing}
-              ref={urlInputRef}
-            />
-            <button
-              onClick={handleGetYoutubeInfo}
-              disabled={isLoading || downloadingQuality !== null || isProcessing}
-            >
-              {isLoading ? 'Loading...' : 'Get Video Info'}
-            </button>
-            <button
-              onClick={handleOneClickDownloadAndHighlights}
-              disabled={isLoading || downloadingQuality !== null || isProcessing}
-              style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                color: 'white',
-                fontWeight: 600
-              }}
-            >
-              {isLoading ? 'Processing...' : 'Download + Highlights'}
-            </button>
+            <div className="url-input-header">
+              <input
+                type="text"
+                placeholder="Paste URL here (YouTube, TikTok, Instagram, Twitter, 1000+ sites)..."
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                disabled={isLoading || downloadingQuality !== null || isProcessing}
+                ref={urlInputRef}
+              />
+              <button
+                onClick={() => setShowBulkUrlInput(!showBulkUrlInput)}
+                className="bulk-toggle-btn"
+                title="Bulk URL Input"
+              >
+                {showBulkUrlInput ? 'Single URL' : 'Bulk URLs'}
+              </button>
+            </div>
+
+            {showBulkUrlInput ? (
+              <BulkUrlInput
+                format="video"
+                onUrlsReady={(urls) => setBulkUrlData(urls)}
+              />
+            ) : (
+              <div className="single-url-actions">
+                <button
+                  onClick={handleGetYoutubeInfo}
+                  disabled={isLoading || downloadingQuality !== null || isProcessing}
+                >
+                  {isLoading ? 'Loading...' : 'Get Video Info'}
+                </button>
+                <button
+                  onClick={handleOneClickDownloadAndHighlights}
+                  disabled={isLoading || downloadingQuality !== null || isProcessing}
+                  style={{
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    color: 'white',
+                    fontWeight: 600
+                  }}
+                >
+                  {isLoading ? 'Processing...' : 'Download + Highlights'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1315,6 +1348,18 @@ const CreateShortPage = () => {
                   <strong>{chaptersAvailable.count} Chapter{chaptersAvailable.count > 1 ? 's' : ''} Found</strong>
                   <span className="chapter-hint"> - Clips will use YouTube's curated chapter markers</span>
                 </span>
+              </div>
+            )}
+
+            {/* Quality Selector - shows when formats are available */}
+            {availableFormats.length > 0 && (
+              <div className="quality-selector-container">
+                <QualitySelector
+                  formats={availableFormats}
+                  selectedQuality={selectedQuality}
+                  onSelectQuality={setSelectedQuality}
+                  disabled={downloadingQuality !== null || isProcessing}
+                />
               </div>
             )}
 
