@@ -98,8 +98,49 @@
 }
 
 /* Dark Mode - Input Section */
-.dark-mode .unified-input-header h2 {
+.dark-mode .unified-input-header h1 {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark-mode .unified-input-header .input-subtitle {
+  color: var(--neutral-400);
+}
+
+.dark-mode .minimal-input-field {
+  border-color: var(--neutral-700);
+  background: var(--neutral-800);
+  color: var(--neutral-200);
+}
+
+.dark-mode .minimal-input-field::placeholder {
+  color: var(--neutral-500);
+}
+
+.dark-mode .minimal-input-field:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(255, 107, 63, 0.2);
+}
+
+.dark-mode .primary-action-btn {
+  box-shadow: 0 4px 12px rgba(255, 107, 63, 0.2);
+}
+
+.dark-mode .primary-action-btn:hover:not(:disabled) {
+  box-shadow: 0 8px 20px rgba(255, 107, 63, 0.3);
+}
+
+.dark-mode .secondary-action-btn {
+  background: var(--neutral-800);
   color: var(--neutral-300);
+  border-color: var(--neutral-700);
+}
+
+.dark-mode .secondary-action-btn:hover {
+  background: var(--neutral-700);
+  border-color: var(--neutral-600);
 }
 
 .dark-mode .mode-btn {
@@ -598,9 +639,133 @@
 
 /* Input Section - Simplified for MVP flow like ytmp3.sc */
 .input-section {
-  max-width: 600px;
+  max-width: 700px;
   margin: 0 auto var(--space-12);
   text-align: center;
+}
+
+.unified-input-header {
+  margin-bottom: var(--space-8);
+}
+
+.unified-input-header h1 {
+  font-size: var(--text-3xl);
+  font-weight: 800;
+  color: var(--neutral-900);
+  margin-bottom: var(--space-3);
+  letter-spacing: -0.02em;
+}
+
+.unified-input-header .input-subtitle {
+  font-size: var(--text-md);
+  color: var(--neutral-600);
+  max-width: 500px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Minimal URL Input - Primary Focus */
+.minimal-url-input {
+  display: flex;
+  gap: var(--space-3);
+  max-width: 100%;
+  margin-bottom: var(--space-4);
+}
+
+.minimal-input-field {
+  flex: 1;
+  padding: var(--space-4) var(--space-5);
+  border: 2px solid var(--neutral-300);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-md);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  transition: all var(--transition-micro) ease;
+  background: white;
+}
+
+.minimal-input-field:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light);
+  transform: translateY(-1px);
+}
+
+.minimal-input-field:disabled {
+  background: var(--neutral-100);
+  cursor: not-allowed;
+}
+
+.primary-action-btn {
+  padding: var(--space-4) var(--space-6);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+  color: white;
+  border: none;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-short) ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(255, 107, 63, 0.3);
+}
+
+.primary-action-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(255, 107, 63, 0.4);
+}
+
+.primary-action-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.primary-action-btn:disabled {
+  background: var(--neutral-300);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.primary-action-btn .spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Secondary Actions Row */
+.secondary-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.secondary-action-btn {
+  padding: var(--space-2) var(--space-4);
+  background: var(--neutral-100);
+  color: var(--neutral-700);
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-micro) ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.secondary-action-btn:hover {
+  background: var(--neutral-200);
+  border-color: var(--neutral-400);
+}
+
+/* Bulk URL Wrapper */
+.bulk-url-wrapper {
+  margin-top: var(--space-6);
+  text-align: left;
 }
 
 .url-input-container {

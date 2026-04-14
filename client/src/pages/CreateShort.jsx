@@ -3,7 +3,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import ReactPlayer from 'react-player';
 import axios from 'axios';
 import {
-  VideoCamera,
   UploadSimple,
   DownloadSimple,
   Target,
@@ -1244,76 +1243,63 @@ const CreateShortPage = () => {
         </div>
       </div>
 
-      {/* Unified Input Section */}
+      {/* Unified Input Section - Minimal Single-Focus Design */}
       <div className="input-section">
         <div className="unified-input-header">
-          <h2>Choose Your Source</h2>
-          <div className="input-mode-selector">
-            <button
-              className={`mode-btn ${inputMode === 'youtube' ? 'active' : ''}`}
-              onClick={() => setInputMode('youtube')}
-            >
-              <VideoCamera weight="fill" size={20} style={{ marginRight: 8 }} /> YouTube URL
-            </button>
-            <button
-              className={`mode-btn ${inputMode === 'upload' ? 'active' : ''}`}
-              onClick={() => {
-                setInputMode('upload');
-                handleSelectFileClick();
-              }}
-            >
-              <UploadSimple weight="fill" size={20} style={{ marginRight: 8 }} /> Upload File
-            </button>
-          </div>
+          <h1>Create Clips from Any Video</h1>
+          <p className="input-subtitle">Paste a URL from YouTube, TikTok, Instagram, Twitter, or 1000+ sites. AI detects the best moments automatically.</p>
         </div>
 
-        {/* YouTube URL Input */}
-        {inputMode === 'youtube' && (
-          <div className="url-input-container">
-            <div className="url-input-header">
-              <input
-                type="text"
-                placeholder="Paste URL here (YouTube, TikTok, Instagram, Twitter, 1000+ sites)..."
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-                disabled={isLoading || downloadingQuality !== null || isProcessing}
-                ref={urlInputRef}
-              />
-              <button
-                onClick={() => setShowBulkUrlInput(!showBulkUrlInput)}
-                className="bulk-toggle-btn"
-                title="Bulk URL Input"
-              >
-                {showBulkUrlInput ? 'Single URL' : 'Bulk URLs'}
-              </button>
-            </div>
-
-            {showBulkUrlInput ? (
-              <BulkUrlInput
-                format="video"
-                onUrlsReady={(urls) => setBulkUrlData(urls)}
-              />
+        {/* Main URL Input - Single Prominent Field */}
+        <div className="minimal-url-input">
+          <input
+            type="text"
+            placeholder="Paste video URL here..."
+            value={youtubeUrl}
+            onChange={(e) => setYoutubeUrl(e.target.value)}
+            disabled={isLoading || downloadingQuality !== null || isProcessing}
+            ref={urlInputRef}
+            className="minimal-input-field"
+          />
+          <button
+            onClick={handleOneClickDownloadAndHighlights}
+            disabled={isLoading || downloadingQuality !== null || isProcessing || !youtubeUrl.trim()}
+            className="primary-action-btn"
+          >
+            {isLoading ? (
+              <><Hourglass size={20} weight="fill" className="spin" /> Processing...</>
             ) : (
-              <div className="single-url-actions">
-                <button
-                  onClick={handleGetYoutubeInfo}
-                  disabled={isLoading || downloadingQuality !== null || isProcessing}
-                >
-                  {isLoading ? 'Loading...' : 'Get Video Info'}
-                </button>
-                <button
-                  onClick={handleOneClickDownloadAndHighlights}
-                  disabled={isLoading || downloadingQuality !== null || isProcessing}
-                  style={{
-                    background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    color: 'white',
-                    fontWeight: 600
-                  }}
-                >
-                  {isLoading ? 'Processing...' : 'Download + Highlights'}
-                </button>
-              </div>
+              <><Scissors size={20} weight="fill" /> Create Clips</>
             )}
+          </button>
+        </div>
+
+        {/* Secondary Actions Row */}
+        <div className="secondary-actions">
+          <button
+            onClick={() => setShowBulkUrlInput(!showBulkUrlInput)}
+            className="secondary-action-btn"
+          >
+            Bulk URLs
+          </button>
+          <button
+            onClick={() => {
+              setInputMode('upload');
+              handleSelectFileClick();
+            }}
+            className="secondary-action-btn"
+          >
+            <UploadSimple size={16} weight="fill" /> Upload File
+          </button>
+        </div>
+
+        {/* Bulk URL Input (collapsible) */}
+        {showBulkUrlInput && (
+          <div className="bulk-url-wrapper">
+            <BulkUrlInput
+              format="video"
+              onUrlsReady={(urls) => setBulkUrlData(urls)}
+            />
           </div>
         )}
 
