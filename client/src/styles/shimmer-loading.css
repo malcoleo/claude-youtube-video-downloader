@@ -1,0 +1,234 @@
+/* client/src/styles/shimmer-loading.css */
+/* Shimmer loading animations - inspired by reclip */
+
+:root {
+  --shimmer-base: #f0ede7;
+  --shimmer-light: #f7f4f0;
+  --shimmer-dark: #e5e2dc;
+}
+
+/* Shimmer animation keyframes */
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Shimmer background pattern */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--shimmer-dark) 25%,
+    var(--shimmer-light) 50%,
+    var(--shimmer-dark) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Loading skeleton lines */
+.skeleton-line {
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    var(--shimmer-dark) 25%,
+    var(--shimmer-light) 50%,
+    var(--shimmer-dark) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  margin-bottom: 6px;
+}
+
+.skeleton-line.short { width: 40%; height: 10px; }
+.skeleton-line.medium { width: 75%; }
+.skeleton-line.long { width: 90%; }
+
+/* Skeleton card for video preview */
+.skeleton-card {
+  display: flex;
+  gap: 14px;
+  border: 1.5px solid var(--card-border, #e2ded6);
+  border-radius: 14px;
+  background: var(--card-bg, #fff);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
+.skeleton-thumbnail {
+  width: 120px;
+  min-width: 120px;
+  height: 80px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--shimmer-dark) 25%,
+    var(--shimmer-light) 50%,
+    var(--shimmer-dark) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Pulse loading indicator */
+.pulse-loader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary, #FF6B3F);
+  animation: pulse 1.4s infinite;
+}
+
+.pulse-dot:nth-child(2) { animation-delay: 0.2s; }
+.pulse-dot:nth-child(3) { animation-delay: 0.4s; }
+.pulse-dot:nth-child(4) { animation-delay: 0.6s; }
+
+/* Card enter animation */
+.card-enter {
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Progress bar shimmer */
+.progress-shimmer {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--shimmer-base);
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 30%;
+  background: var(--primary, #FF6B3F);
+  animation: shimmer 1.5s infinite;
+}
+
+/* Thumbnail loading placeholder */
+.thumbnail-placeholder {
+  width: 120px;
+  height: 80px;
+  border-radius: 8px;
+  background: var(--shimmer-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted, #9c9889);
+}
+
+.thumbnail-placeholder svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.5;
+}
+
+/* Bulk URL textarea loading state */
+.bulk-loading {
+  position: relative;
+}
+
+.bulk-loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  animation: shimmer 1.5s infinite;
+  pointer-events: none;
+}
+
+/* Button loading state */
+.btn-loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn-loading::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* URL list item loading */
+.url-item-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #f9f9f9);
+  margin-bottom: 8px;
+}
+
+.url-item-loading .url-status {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--shimmer-base);
+}
+
+.url-item-loading .url-info {
+  flex: 1;
+}
+
+.url-item-loading .url-title {
+  height: 14px;
+  width: 60%;
+  background: var(--shimmer-base);
+  border-radius: 4px;
+  margin-bottom: 4px;
+}
+
+.url-item-loading .url-meta {
+  height: 10px;
+  width: 40%;
+  background: var(--shimmer-base);
+  border-radius: 4px;
+}

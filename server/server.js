@@ -17,6 +17,7 @@ const userPreferencesRoutes = require('./api/user-preferences');
 const presetsRoutes = require('./api/presets');
 const authRoutes = require('./api/auth');
 const schedulerRoutes = require('./api/scheduler');
+const mediaDownloaderRoutes = require('./api/media-downloader');
 
 // Note: highlightDetectionRoutes exports both a router and podcastRouter
 const highlightRouter = highlightDetectionRoutes.router || highlightDetectionRoutes;
@@ -104,6 +105,7 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // API Routes
+app.use('/api/media', mediaDownloaderRoutes); // New yt-dlp based media downloader
 app.use('/api/youtube', youtubeProcessingRoutes);
 app.use('/api/video', videoProcessorRoutes);
 app.use('/api/highlights', highlightRouter);
@@ -116,6 +118,16 @@ app.use('/api/presets', presetsRoutes);
 app.use('/api', publicApiRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/scheduler', schedulerRoutes);
+
+// Health check endpoint for Docker
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    version: process.env.npm_package_version || '1.0.0'
+  });
+});
 
 // Serve output directory for video playback (with download support)
 // MUST come BEFORE React static files route

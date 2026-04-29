@@ -2,8 +2,12 @@
 
 A web application that converts long YouTube videos into short, engaging clips optimized for TikTok, Instagram Reels, and YouTube Shorts.
 
+**Now with 1000+ site support via yt-dlp!** Download from YouTube, TikTok, Instagram, Twitter, Facebook, Vimeo, and many more.
+
 ## Features
 
+### Core Features
+- **1000+ Site Support**: Download from YouTube, TikTok, Instagram, Twitter, Facebook, Vimeo, and 1000+ more via yt-dlp
 - **AI-Powered Highlight Detection**: Automatically detects exciting moments in videos using audio, motion, and scene analysis
 - **Multi-Platform Optimization**: Converts videos to platform-specific formats (TikTok, Instagram, YouTube Shorts)
 - **Advanced Video Editing**: Trim, crop, adjust effects, and stabilize videos
@@ -13,38 +17,101 @@ A web application that converts long YouTube videos into short, engaging clips o
 - **Analytics Dashboard**: Track views, likes, comments, shares, and engagement rates
 - **History Tracking**: Maintain records of user activities and exports
 
+### New Features (Latest)
+- **Bulk URL Processing**: Paste multiple URLs at once with auto-deduplication
+- **Job-Based Downloads**: Async downloads with progress tracking and retry logic
+- **Quality Selector**: Choose resolution (4K, 1080p, 720p, 480p) before download
+- **Docker Support**: One-command deployment with Docker Compose
+- **Shimmer Loading**: Smooth loading states for better UX
+
 ## Tech Stack
 
-- **Frontend**: React, Material-UI
+- **Frontend**: React, Material-UI, Phosphor Icons
 - **Backend**: Node.js, Express
-- **Video Processing**: FFmpeg
-- **AI Analysis**: Python (NumPy, SciPy, OpenCV)
+- **Video Download**: yt-dlp (supports 1000+ sites)
+- **Video Processing**: FFmpeg, fluent-ffmpeg
+- **AI Analysis**: Python (NumPy, SciPy, OpenCV, Whisper)
 - **File Storage**: Local filesystem
+- **Deployment**: Docker, Docker Compose
 
 ## Installation
+
+### Option 1: Local Development
 
 1. Clone the repository
 2. Install dependencies:
    ```bash
    npm install
    ```
-3. Install Python dependencies (for AI analysis):
-   - Ensure you have Python 3 installed
-   - Install required packages: `pip install numpy scipy opencv-python`
-4. Start the application:
+3. Install system dependencies:
+   ```bash
+   # macOS
+   brew install yt-dlp ffmpeg
+
+   # Linux (Ubuntu/Debian)
+   sudo apt install yt-dlp ffmpeg
+
+   # Windows
+   winget install yt-dlp && winget install ffmpeg
+   ```
+4. Install Python dependencies (for AI analysis):
+   ```bash
+   pip install -r requirements.txt
+   ```
+5. Start the application:
    ```bash
    npm run dev
    ```
 
+### Option 2: Docker (Recommended)
+
+```bash
+# Quick start with Docker Compose
+docker-compose up --build
+
+# Access at http://localhost:5001
+```
+
+See [DOCKER.md](DOCKER.md) for detailed Docker deployment instructions.
+
 ## Usage
 
-1. Paste a YouTube URL or upload a local video
+### Basic Usage
+
+1. Paste a URL (YouTube, TikTok, Instagram, Twitter, etc.) or upload a local video
 2. Select your target platform (TikTok, Instagram Reels, YouTube Shorts)
-3. Choose from AI-suggested highlights or manually trim the video
-4. Apply effects and optimizations
-5. Download the processed video or share directly to social media
+3. Choose quality/resolution or use default
+4. Select from AI-suggested highlights or manually trim the video
+5. Apply effects and optimizations
+6. Download the processed video or share directly to social media
+
+### Bulk Download
+
+1. Click "Bulk URL Input" to expand the bulk uploader
+2. Paste multiple URLs (one per line) - duplicates are automatically removed
+3. Click "Fetch Info" to load previews for all URLs
+4. Download individual videos or use "Download All" for batch processing
+
+### Quality Selection
+
+When downloading, you can choose:
+- **4K (2160p)** - Ultra HD for highest quality
+- **1080p** - Full HD for most platforms
+- **720p** - HD for faster processing
+- **480p** - SD for quick previews
+- **Audio Only** - Extract MP3 audio
 
 ## API Endpoints
+
+### Media Downloader (yt-dlp - 1000+ sites)
+- `POST /api/media/info` - Get video info from any supported URL
+- `POST /api/media/info/bulk` - Get info for multiple URLs at once
+- `POST /api/media/download` - Start a download job (returns jobId)
+- `POST /api/media/download/bulk` - Start downloads for multiple URLs
+- `GET /api/media/status/:jobId` - Check download job status
+- `GET /api/media/file/:jobId` - Download the completed file
+- `GET /api/media/stream/:jobId` - Stream the completed file
+- `GET /api/media/supported-sites` - Get list of supported sites
 
 ### Video Processing
 - `POST /api/youtube/info` - Get YouTube video information

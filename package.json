@@ -13,7 +13,11 @@
     "postinstall": "cd client && npm install",
     "test": "node --test",
     "test:watch": "node --test --watch",
-    "gstack-install": "curl -fsSL https://bun.sh/install | bash && export BUN_INSTALL=\"$HOME/.bun\" && export PATH=\"$BUN_INSTALL/bin:$PATH\" && (test -d ~/.claude/skills/gstack || git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack) && cd ~/.claude/skills/gstack && ./setup"
+    "gstack-install": "curl -fsSL https://bun.sh/install | bash && export BUN_INSTALL=\"$HOME/.bun\" && export PATH=\"$BUN_INSTALL/bin:$PATH\" && (test -d ~/.claude/skills/gstack || git clone https://github.com/garrytan/gstack.git ~/.claude/skills/gstack) && cd ~/.claude/skills/gstack && ./setup",
+    "docker:build": "docker build -t youtube-shorts-app .",
+    "docker:run": "docker run -p 5001:5001 -v $(pwd)/output:/app/output -v $(pwd)/temp:/app/temp youtube-shorts-app",
+    "docker:dev": "docker-compose up --build",
+    "docker:stop": "docker-compose down"
   },
   "keywords": [
     "youtube",
@@ -29,7 +33,6 @@
   "license": "MIT",
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
-    "archiver": "^7.0.1",
     "axios": "^1.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

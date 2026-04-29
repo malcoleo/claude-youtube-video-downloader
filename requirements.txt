@@ -1,0 +1,4 @@
+# Python dependencies for yt-dlp based media downloading
+# Install with: pip install -r requirements.txt
+
+yt-dlp>=2024.01.01  # Video/audio downloader supporting 1000+ sites

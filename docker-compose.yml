@@ -1,0 +1,47 @@
+# Docker Compose for claude-youtube-video-downloader
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: youtube-shorts-app
+    ports:
+      - "5001:5001"
+    volumes:
+      # Persist output files
+      - output_data:/app/output
+      - temp_data:/app/temp
+      - downloads_data:/app/downloads
+      - user_data:/app/data
+    environment:
+      - NODE_ENV=production
+      - PORT=5001
+      - HOST=0.0.0.0
+      # OAuth credentials (add your own in .env)
+      - YOUTUBE_CLIENT_ID=${YOUTUBE_CLIENT_ID:-}
+      - YOUTUBE_CLIENT_SECRET=${YOUTUBE_CLIENT_SECRET:-}
+      - INSTAGRAM_CLIENT_ID=${INSTAGRAM_CLIENT_ID:-}
+      - INSTAGRAM_CLIENT_SECRET=${INSTAGRAM_CLIENT_SECRET:-}
+      - TIKTOK_CLIENT_ID=${TIKTOK_CLIENT_ID:-}
+      - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change-this-in-production}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Named volumes for data persistence
+volumes:
+  output_data:
+    driver: local
+  temp_data:
+    driver: local
+  downloads_data:
+    driver: local
+  user_data:
+    driver: local
