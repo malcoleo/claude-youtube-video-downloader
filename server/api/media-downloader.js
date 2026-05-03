@@ -68,6 +68,26 @@ router.post('/info', async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting media info:', error);
+    const msg = error.message || '';
+
+    // User-friendly error messages for common issues
+    if (msg.includes('login required') || msg.includes('cookies') || msg.includes('rate-limit')) {
+      return res.status(403).json({
+        error: 'This site requires authentication. Try again in a moment, or use YouTube/TikTok/Twitter URLs for best results.',
+        hint: msg.includes('rate-limit') ? 'Instagram rate-limited the request. Please try again in 30 seconds.' : 'Instagram requires authentication. Try again in a moment.'
+      });
+    }
+    if (msg.includes('Unable to extract')) {
+      return res.status(400).json({
+        error: 'Could not extract video data from this URL. Try a different format or check the URL is correct.'
+      });
+    }
+    if (msg.includes('video not available') || msg.includes('not available')) {
+      return res.status(404).json({
+        error: 'This video is not available. It may have been removed or the URL may be incorrect.'
+      });
+    }
+
     res.status(500).json({
       error: 'Failed to get video info: ' + error.message,
       supportedSites: 'Use yt-dlp supported sites (YouTube, TikTok, Instagram, Twitter, etc.)'

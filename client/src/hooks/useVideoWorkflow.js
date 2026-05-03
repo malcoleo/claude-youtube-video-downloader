@@ -228,7 +228,7 @@ export function useVideoWorkflow() {
   // ---- YouTube handlers ----
   const handleGetYoutubeInfo = async () => {
     if (!youtubeUrl) {
-      setError('Please enter a YouTube URL');
+      setError('Please enter a video URL');
       return;
     }
 
@@ -258,7 +258,8 @@ export function useVideoWorkflow() {
             : String(err.response.data.suggestions);
           setError(`Invalid URL. Suggestions:\n• ${suggestionsText}`);
         } else if (typeof err.response.data === 'object' && err.response.data.error) {
-          setError(String(err.response.data.error));
+          const hint = err.response.data.hint ? `\n\n${err.response.data.hint}` : '';
+          setError(String(err.response.data.error) + hint);
         } else if (typeof err.response.data === 'string') {
           setError(err.response.data);
         } else {
@@ -277,7 +278,7 @@ export function useVideoWorkflow() {
 
   const handleDownloadOriginal = async (quality) => {
     if (!youtubeUrl) {
-      setError('Please enter a YouTube URL');
+      setError('Please enter a video URL');
       return;
     }
 
@@ -342,9 +343,10 @@ export function useVideoWorkflow() {
           const suggestionsText = Array.isArray(err.response.data.suggestions)
             ? err.response.data.suggestions.join('\n• ')
             : String(err.response.data.suggestions);
-          setError(`Invalid YouTube URL. Suggestions:\n• ${suggestionsText}`);
+          setError(`Invalid URL. Suggestions:\n• ${suggestionsText}`);
         } else if (typeof err.response.data === 'object' && err.response.data.error) {
-          setError(String(err.response.data.error));
+          const hint = err.response.data.hint ? `\n\n${err.response.data.hint}` : '';
+          setError(String(err.response.data.error) + hint);
         } else if (typeof err.response.data === 'string') {
           setError(err.response.data);
         } else {
@@ -370,7 +372,7 @@ export function useVideoWorkflow() {
   // ---- Q&A detection ----
   const handleDetectQaForYoutube = async () => {
     if (!videoInfo) {
-      setError('Please get YouTube video info first');
+      setError('Please get video info first');
       return;
     }
 
@@ -427,9 +429,10 @@ export function useVideoWorkflow() {
           const suggestionsText = Array.isArray(err.response.data.suggestions)
             ? err.response.data.suggestions.join('\n• ')
             : String(err.response.data.suggestions);
-          setError(`Invalid YouTube URL. Suggestions:\n• ${suggestionsText}`);
+          setError(`Invalid URL. Suggestions:\n• ${suggestionsText}`);
         } else if (typeof err.response.data === 'object' && err.response.data.error) {
-          setError(String(err.response.data.error));
+          const hint = err.response.data.hint ? `\n\n${err.response.data.hint}` : '';
+          setError(String(err.response.data.error) + hint);
         } else if (typeof err.response.data === 'string') {
           setError(err.response.data);
         } else {
@@ -451,7 +454,7 @@ export function useVideoWorkflow() {
   // ---- One-click download + highlights ----
   const handleOneClickDownloadAndHighlights = async () => {
     if (!youtubeUrl) {
-      setError('Please enter a YouTube URL');
+      setError('Please enter a video URL');
       return;
     }
 

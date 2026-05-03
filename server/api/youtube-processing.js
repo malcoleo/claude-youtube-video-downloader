@@ -1,7 +1,7 @@
 // server/api/youtube-processing.js
 const express = require('express');
 const router = express.Router();
-const { exec } = require('child_process');
+const { execFile, exec: execShell } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const VideoProcessor = require('../utils/video-processor');
@@ -62,21 +62,12 @@ function formatTime(seconds) {
 }
 
 // Helper function to run yt-dlp commands with progress tracking
+// SECURITY: Uses execFile (no shell) to prevent command injection
 function runYtDlp(args, onProgress) {
   return new Promise((resolve, reject) => {
-    // Quote arguments that contain special characters
-    const quotedArgs = args.map(arg => {
-      // Quote arguments with brackets or special chars
-      if (arg.includes('[') || arg.includes(']') || arg.includes(' ')) {
-        return `"${arg}"`;
-      }
-      return arg;
-    });
-    const command = `yt-dlp ${quotedArgs.join(' ')}`;
-
     let progress = { percent: 0, eta: null, speed: null };
 
-    const child = exec(command, {
+    const child = execFile('yt-dlp', args, {
       encoding: 'utf8',
       maxBuffer: 100 * 1024 * 1024 // 100MB buffer for large downloads
     }, (error, stdout, stderr) => {
@@ -216,29 +207,25 @@ function normalizeYouTubeUrl(url) {
   };
 }
 
-// Route to get video info from YouTube URL
+// Route to get video info from any supported URL (YouTube, Instagram, TikTok, Facebook, etc.)
 router.post('/info', async (req, res) => {
   try {
     const { youtubeUrl } = req.body;
 
     if (!youtubeUrl) {
-      return res.status(400).json({ error: 'YouTube URL is required' });
+      return res.status(400).json({ error: 'URL is required' });
     }
 
-    // Validate YouTube URL
-    if (!isValidYouTubeUrl(youtubeUrl)) {
-      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
-      return res.status(400).json({
-        error: 'Invalid YouTube URL',
-        suggestions: normalizationResult.suggestions
-      });
+    // Validate URL format
+    try { new URL(youtubeUrl); } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
     }
 
     // Get video info using yt-dlp
     const result = await runYtDlp([
       '-J', // Dump JSON
       '--no-warnings',
-      `"${youtubeUrl}"`
+      youtubeUrl
     ]);
 
     const info = JSON.parse(result.stdout);
@@ -313,21 +300,17 @@ router.post('/info', async (req, res) => {
   }
 });
 
-// Route to download and process YouTube video
+// Route to download and process video (YouTube, Instagram, TikTok, Facebook, etc.)
 router.post('/download', async (req, res) => {
   try {
     const { youtubeUrl, start, end, platform, quality, withEffects = false } = req.body;
 
     if (!youtubeUrl) {
-      return res.status(400).json({ error: 'YouTube URL is required' });
+      return res.status(400).json({ error: 'URL is required' });
     }
 
-    if (!isValidYouTubeUrl(youtubeUrl)) {
-      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
-      return res.status(400).json({
-        error: 'Invalid YouTube URL',
-        suggestions: normalizationResult.suggestions
-      });
+    try { new URL(youtubeUrl); } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
     }
 
     console.log(`[DOWNLOAD] Starting download for: ${youtubeUrl}`);
@@ -339,7 +322,7 @@ router.post('/download', async (req, res) => {
     const infoResultData = await runYtDlp([
       '-J',
       '--no-warnings',
-      `"${youtubeUrl}"`
+      youtubeUrl
     ]);
     const info = JSON.parse(infoResultData.stdout);
     console.log(`[DOWNLOAD] Video: ${info.title.substring(0, 50)}... Duration: ${info.duration}s`);
@@ -365,7 +348,7 @@ router.post('/download', async (req, res) => {
     let downloadArgs = [
       '-f', formatSelector,
       '--merge-output-format', 'mp4',
-      '--output', `"${tempFilePath}.%(ext)s"`,
+      '--output', `${tempFilePath}.%(ext)s`,
       '--no-warnings',
       '--progress'
     ];
@@ -379,7 +362,7 @@ router.post('/download', async (req, res) => {
       downloadArgs.push('--download-sections', `*${startFormatted}-${endFormatted}`);
     }
 
-    downloadArgs.push(`"${youtubeUrl}"`);
+    downloadArgs.push(youtubeUrl);
 
     // Generate download ID for progress polling
     const downloadId = req.body.id || 'dl-' + Date.now();
@@ -533,22 +516,17 @@ router.get('/platforms', (req, res) => {
   });
 });
 
-// Route to download YouTube video and detect Q&A segments
+// Route to download video and detect Q&A segments (any supported URL)
 router.post('/detect-qa', async (req, res) => {
   try {
     const { youtubeUrl } = req.body;
 
     if (!youtubeUrl) {
-      return res.status(400).json({ error: 'YouTube URL is required' });
+      return res.status(400).json({ error: 'URL is required' });
     }
 
-    // Validate YouTube URL
-    if (!isValidYouTubeUrl(youtubeUrl)) {
-      const normalizationResult = normalizeYouTubeUrl(youtubeUrl);
-      return res.status(400).json({
-        error: 'Invalid YouTube URL',
-        suggestions: normalizationResult.suggestions
-      });
+    try { new URL(youtubeUrl); } catch {
+      return res.status(400).json({ error: 'Invalid URL format' });
     }
 
     console.log(`[Q&A] Starting Q&A detection for: ${youtubeUrl}`);
@@ -558,7 +536,7 @@ router.post('/detect-qa', async (req, res) => {
     const infoResultData = await runYtDlp([
       '-J',
       '--no-warnings',
-      `"${youtubeUrl}"`
+      youtubeUrl
     ]);
     const info = JSON.parse(infoResultData.stdout);
     console.log(`[Q&A] Video: ${info.title.substring(0, 50)}... Duration: ${info.duration}s`);
@@ -586,10 +564,10 @@ router.post('/detect-qa', async (req, res) => {
       () => runYtDlp([
         '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
         '--merge-output-format', 'mp4',
-        '--output', `"${tempFilePath}.%(ext)s"`,
+        '--output', `${tempFilePath}.%(ext)s`,
         '--no-warnings',
         '--progress',
-        `"${youtubeUrl}"`
+        youtubeUrl
       ], (progress) => {
         // Scale download progress from 5% to 40%
         updateProgress(5 + (progress.percent * 0.35), 'Downloading video...');
@@ -627,9 +605,8 @@ router.post('/detect-qa', async (req, res) => {
       const audioPath = tempFilePath + '.wav';
 
       await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
         const ffmpegCmd = `ffmpeg -i "${downloadedFile}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`;
-        exec(ffmpegCmd, (err, stdout, stderr) => {
+        execShell(ffmpegCmd, (err, stdout, stderr) => {
           if (err) {
             console.error('FFmpeg audio extraction error:', err);
             reject(err);
@@ -755,9 +732,8 @@ router.post('/detect-qa', async (req, res) => {
       const audioPath = tempFilePath + '.wav';
 
       await new Promise((resolve, reject) => {
-        const { exec } = require('child_process');
         const ffmpegCmd = `ffmpeg -i "${downloadedFile}" -vn -acodec pcm_s16le -ar 16000 -ac 1 "${audioPath}" -y`;
-        exec(ffmpegCmd, (err, stdout, stderr) => {
+        execShell(ffmpegCmd, (err, stdout, stderr) => {
           if (err) {
             console.error('FFmpeg audio extraction error:', err);
             reject(err);
@@ -809,9 +785,8 @@ router.post('/detect-qa', async (req, res) => {
     const previewPath = tempFilePath + '-preview.mp4';
 
     await new Promise((resolve, reject) => {
-      const { exec } = require('child_process');
       const ffmpegCmd = `ffmpeg -i "${downloadedFile}" -vf "scale=854:480" -c:v libx264 -preset fast -crf 28 -c:a aac -b:a 64k "${previewPath}" -y`;
-      exec(ffmpegCmd, (err, stdout, stderr) => {
+      execShell(ffmpegCmd, (err, stdout, stderr) => {
         if (err) {
           console.error('FFmpeg preview generation error:', err);
           reject(err);

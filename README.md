@@ -252,6 +252,10 @@ LINKEDIN_REDIRECT_URI=http://localhost:5001/api/auth/linkedin/callback
 - Split 1974-line CreateShort.jsx monolith into maintainable hooks and components
 - Split 811-line SocialMediaManager into focused sub-components
 - Fixed: export segment field mismatch, hardcoded Docker paths, persistent file storage
+- Fixed: Instagram/Facebook URL handling (execFile shell injection prevention)
+- Fixed: Non-YouTube URL validation (generic URL parsing)
+- Fixed: User-friendly error messages for auth-required sites
+- Added: Screenshot to README
 
 ### v0.1.0 (Apr 2026)
 - Initial release: 1000+ site download, quality selection, bulk URL processing
