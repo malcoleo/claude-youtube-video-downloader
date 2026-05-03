@@ -4,6 +4,12 @@ A web application that converts long YouTube videos into short, engaging clips o
 
 **Now with 1000+ site support via yt-dlp!** Download from YouTube, TikTok, Instagram, Twitter, Facebook, Vimeo, and many more.
 
+## Why This Exists
+
+Content creators waste hours finding the best moments in long videos, manually trimming clips, and reformatting for each platform. This tool automates the entire pipeline — from URL to ready-to-post vertical clips with AI-generated captions, Hormozi-style subtitles, and platform-optimized exports.
+
+Built as a full-stack application with a React frontend, Express API backend, and Python-based AI analysis, it demonstrates end-to-end product development: video processing, machine learning integration, Docker deployment, and social media platform integrations via OAuth.
+
 ## Features
 
 ### Core Features
@@ -229,6 +235,23 @@ LINKEDIN_REDIRECT_URI=http://localhost:5001/api/auth/linkedin/callback
 - **TikTok** - 9:16 vertical, max 60 seconds
 - **Facebook Reels** - 9:16 vertical, max 60 seconds
 - **LinkedIn Video** - Various aspect ratios, max 10 minutes
+
+## Changelog
+
+### v0.2.0 (May 2026)
+- AI-powered Q&A detection using whisper.cpp for speaker diarization
+- One-click "Create Clips" workflow (URL → download → transcribe → detect → export)
+- Hormozi-style animated subtitles with face-tracking crop
+- Docker multi-stage build for Railway deployment
+- Split 1974-line CreateShort.jsx monolith into maintainable hooks and components
+- Split 811-line SocialMediaManager into focused sub-components
+- Fixed: export segment field mismatch, hardcoded Docker paths, persistent file storage
+
+### v0.1.0 (Apr 2026)
+- Initial release: 1000+ site download, quality selection, bulk URL processing
+- Multi-platform video optimization (TikTok, Reels, Shorts)
+- Social media manager with OAuth, scheduling, and analytics
+- Docker Compose support
 
 ## Contributing
 
