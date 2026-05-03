@@ -773,7 +773,7 @@ router.post('/podcast/detect', podcastUpload.single('video'), async (req, res) =
 router.post('/video/export-clips', async (req, res) => {
   const {
     videoPath,
-    segments,
+    segments: rawSegments,
     format = 'original',
     addSubtitles = false,
     addEndFrame = false,
@@ -794,11 +794,20 @@ router.post('/video/export-clips', async (req, res) => {
     addEndScreen = true
   } = req.body;
 
-  console.log('Export request received:', { videoPath, segments: segments?.length, format, addSubtitles, addEndFrame });
+  console.log('Export request received:', { videoPath, segments: rawSegments?.length, format, addSubtitles, addEndFrame });
 
-  if (!videoPath || !segments || !Array.isArray(segments) || segments.length === 0) {
+  if (!videoPath || !rawSegments || !Array.isArray(rawSegments) || rawSegments.length === 0) {
     return res.status(400).json({ error: 'Missing required parameters: videoPath, segments' });
   }
+
+  // Normalize segments: support both Q&A format ({questionStart, answerEnd}) and standard format ({start, end})
+  let segments = rawSegments.map(s => {
+    if (s.start !== undefined && s.end !== undefined) return s;
+    if (s.questionStart !== undefined && s.answerEnd !== undefined) {
+      return { start: s.questionStart, end: s.answerEnd, ...s };
+    }
+    return s;
+  });
 
   // Format configurations with smart crop options
   // For 9:16 vertical: crop to focus on content, then scale
@@ -1341,10 +1350,43 @@ podcastRouter.post('/detect', podcastUpload.single('video'), async (req, res) =>
     // Sort by score descending
     formattedQaPairs.sort((a, b) => b.score - a.score);
 
+    // Move to persistent storage for export
+    const persistentPath = videoPath.replace('/temp/', '/temp/persistent/');
+    try {
+      await fs.promises.mkdir(path.dirname(persistentPath), { recursive: true });
+      await fs.promises.rename(videoPath, persistentPath);
+      console.log(`Moved to persistent storage: ${persistentPath}`);
+      // Schedule cleanup after 1 hour
+      setTimeout(async () => {
+        try { await fs.promises.unlink(persistentPath); } catch (e) {}
+      }, 60 * 60 * 1000);
+    } catch (err) {
+      console.error('Error moving to persistent storage:', err.message);
+    }
+
+    // Generate preview video for smooth hover playback
+    let previewUrl = null;
+    const isVideoFile = videoPath.match(/\.(mp4|mov|mkv|webm)$/i);
+    if (isVideoFile) {
+      try {
+        const previewPath = persistentPath.replace(/\.[^.]+$/, '-preview.mp4');
+        await new Promise((resolve, reject) => {
+          execFile(FFMPEG_PATH, ['-i', persistentPath, '-vf', 'scale=854:480', '-c:v', 'libx264', '-preset', 'fast', '-crf', '28', '-c:a', 'aac', '-b:a', '64k', '-movflags', '+faststart', previewPath, '-y'], (err) => {
+            if (err) reject(err); else resolve();
+          });
+        });
+        previewUrl = `/temp/persistent/${path.basename(previewPath)}`;
+      } catch (previewErr) {
+        console.error('Preview generation failed, using original:', previewErr.message);
+      }
+    }
+
     res.json({
       success: true,
       qaPairs: formattedQaPairs,
       stats: qaResult.stats,
+      previewUrl,
+      videoPathForExport: persistentPath,
       message: `Found ${formattedQaPairs.length} Q&A pairs`
     });
 
@@ -1354,14 +1396,8 @@ podcastRouter.post('/detect', podcastUpload.single('video'), async (req, res) =>
       error: 'Failed to detect Q&A pairs: ' + error.message,
       details: error.stack
     });
-  } finally {
-    // Clean up uploaded file
-    try {
-      await fs.promises.unlink(videoPath);
-    } catch (err) {
-      console.error('Error deleting uploaded file:', err);
-    }
   }
+  // Note: file is moved to persistent storage above, not deleted in finally
 });
 
 // Endpoint to generate customized thumbnails
