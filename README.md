@@ -10,6 +10,12 @@ Content creators waste hours finding the best moments in long videos, manually t
 
 Built as a full-stack application with a React frontend, Express API backend, and Python-based AI analysis, it demonstrates end-to-end product development: video processing, machine learning integration, Docker deployment, and social media platform integrations via OAuth.
 
+## Screenshot
+
+![Video Clip Generator](screenshot-desktop.png)
+
+*Main interface: Paste any video URL, click "Create Clips", and AI handles the rest.*
+
 ## Features
 
 ### Core Features
