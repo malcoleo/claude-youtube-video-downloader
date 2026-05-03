@@ -58,6 +58,10 @@ subtitle_renderer = load_module_from_file(
     'subtitle_renderer',
     os.path.join(os.path.dirname(__file__), 'subtitle-renderer.py')
 )
+script_generator = load_module_from_file(
+    'script_generator',
+    os.path.join(os.path.dirname(__file__), 'script-generator.py')
+)
 
 
 def load_whisper_output(whisper_json_path):
@@ -408,11 +412,8 @@ def generate_captions_from_audio(audio_path: str, caption_type: str = "basic", t
     Generate captions from audio file
     """
     try:
-        # Import the script-generator module
-        from script-generator import generate_script_from_audio
-
-        # Generate the transcript
-        transcript_result = generate_script_from_audio(audio_path, "json")
+        # Generate the transcript using script_generator module
+        transcript_result = script_generator.generate_script_from_audio(audio_path, "json")
 
         if not transcript_result["success"]:
             return transcript_result
@@ -483,13 +484,12 @@ def main():
             elif args.format == 'json':
                 output_content = json.dumps(result, indent=2)
             else:  # ass format
-                # For ASS, we need to use the Hormozi-style generator with word timestamps
-                from script-generator import generate_script_from_audio
-                transcript_result = generate_script_from_audio(args.audio, "json")
-                if transcript_result['success']:
+                # For ASS, use the Hormozi-style generator with word timestamps
+                transcript_data = result['transcript']
+                if transcript_data and 'segments' in transcript_data:
                     # Convert segments to word-level timestamps
                     words_with_timestamps = []
-                    for seg in transcript_result['transcript']['segments']:
+                    for seg in transcript_data['segments']:
                         # Approximate word timing if needed
                         text = seg['text'].strip()
                         start = seg['start']
