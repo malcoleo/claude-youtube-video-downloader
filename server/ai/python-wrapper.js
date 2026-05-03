@@ -37,7 +37,8 @@ class PythonAIWrapper {
     this.qaDetectorPath = path.join(__dirname, 'qa-detector.py');
     this.whisperToQaPath = path.join(__dirname, 'whisper-to-qa.py');
     this.faceCropDetectorPath = path.join(__dirname, 'face-crop-detector.py');
-    this.whisperModelPath = path.join(__dirname, 'models', 'ggml-large-v3.bin');
+    this.whisperModelPath = process.env.WHISPER_MODEL_PATH || path.join(__dirname, 'models', 'ggml-large-v3.bin');
+    this.whisperBinary = process.env.WHISPER_BINARY || path.join(__dirname, '..', '..', 'whisper.cpp', 'main');
     this.whisperJsonPath = path.join(__dirname, 'whisper-output.json');
   }
 
@@ -80,7 +81,7 @@ class PythonAIWrapper {
         console.log(`Transcribing ${audioPath} with whisper.cpp...`);
         console.log(`Audio path (absolute): ${absoluteAudioPath}`);
         console.log(`Expected JSON output: ${jsonOutputPath}`);
-        execFileSync('whisper-cli', whisperArgs, {
+        execFileSync(this.whisperBinary, whisperArgs, {
           stdio: ['pipe', 'pipe', 'pipe'],
           maxBuffer: 100 * 1024 * 1024 // 100MB buffer for long transcripts
         });

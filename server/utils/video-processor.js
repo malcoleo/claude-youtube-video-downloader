@@ -6,9 +6,9 @@ const { execFile } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const PythonAIWrapper = require('../ai/python-wrapper');
 
-// Use system ffmpeg (installed via brew)
-ffmpeg.setFfmpegPath('/opt/homebrew/bin/ffmpeg');
-ffmpeg.setFfprobePath('/opt/homebrew/bin/ffprobe');
+// Use system ffmpeg (installed via brew or package manager)
+ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH || '/opt/homebrew/bin/ffmpeg');
+ffmpeg.setFfprobePath(process.env.FFPROBE_PATH || '/opt/homebrew/bin/ffprobe');
 
 class VideoProcessor {
   constructor() {

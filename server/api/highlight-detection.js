@@ -15,7 +15,8 @@ const VideoCache = require('../utils/video-cache');
 const FFmpegOptimizer = require('../utils/ffmpeg-optimizer');
 
 // Use ffmpeg-full for libass support (ASS subtitle rendering)
-const FFMPEG_PATH = '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg';
+// Falls back to system ffmpeg in Docker/other environments
+const FFMPEG_PATH = process.env.FFMPEG_PATH || '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg';
 
 const videoProcessor = new VideoProcessor();
 const pythonAI = new PythonAIWrapper();

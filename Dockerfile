@@ -28,10 +28,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     npm \
     git \
     ca-certificates \
+    build-essential \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Install yt-dlp
 RUN pip install --no-cache-dir yt-dlp
+
+# Install whisper.cpp (for Q&A detection)
+RUN git clone https://github.com/ggerganov/whisper.cpp.git /opt/whisper.cpp && \
+    cd /opt/whisper.cpp && \
+    make -j$(nproc) && \
+    python3 -m pip install -r requirements.txt
+
+# Download small whisper model (balanced speed/quality)
+RUN cd /opt/whisper.cpp && \
+    wget -q https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin && \
+    mv ggml-small.bin /opt/whisper.cpp/models/
 
 WORKDIR /app
 
@@ -54,7 +67,11 @@ RUN mkdir -p /app/output /app/temp /app/downloads /app/data
 ENV NODE_ENV=production \
     PORT=5001 \
     HOST=0.0.0.0 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    WHISPER_BINARY=/opt/whisper.cpp/main \
+    WHISPER_MODEL_PATH=/opt/whisper.cpp/models/ggml-small.bin \
+    FFMPEG_PATH=/usr/bin/ffmpeg \
+    FFPROBE_PATH=/usr/bin/ffprobe
 
 # Expose port
 EXPOSE 5001
