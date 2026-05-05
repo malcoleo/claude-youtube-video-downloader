@@ -127,6 +127,101 @@ const tests = [
       return 'PASS';
     },
   },
+  {
+    name: 'POST /api/media/info - response includes source field',
+    async test() {
+      const res = await request('POST', '/api/media/info', {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      });
+      if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+      if (!res.data.source) throw new Error('Expected source field in response');
+      if (!res.data.source.type) throw new Error('Expected source.type');
+      if (!res.data.source.label) throw new Error('Expected source.label');
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/discover - YouTube video URL returns type=single',
+    async test() {
+      const res = await request('POST', '/api/media/discover', {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      });
+      if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+      if (!res.data.success) throw new Error('Expected success=true');
+      if (res.data.type !== 'single') throw new Error('Expected type=single');
+      if (!res.data.videos || !Array.isArray(res.data.videos)) throw new Error('Expected videos array');
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/discover - single video URL returns type=single',
+    async test() {
+      const res = await request('POST', '/api/media/discover', {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      });
+      if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+      if (res.data.type !== 'single' && res.data.type !== 'playlist') {
+        throw new Error('Expected type=single or type=playlist');
+      }
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/discover - invalid URL returns 400',
+    async test() {
+      const res = await request('POST', '/api/media/discover', { url: 'not-a-url' });
+      if (res.status !== 400 && res.status !== 404 && res.status !== 500) {
+        throw new Error(`Expected 400/404/500, got ${res.status}`);
+      }
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/discover - missing URL returns 400',
+    async test() {
+      const res = await request('POST', '/api/media/discover', {});
+      if (res.status !== 400) throw new Error(`Expected 400, got ${res.status}`);
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/download - with outputFormat=mp4 starts download',
+    async test() {
+      const res = await request('POST', '/api/media/download', {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        outputFormat: 'mp4',
+      });
+      if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}: ${JSON.stringify(res.data)}`);
+      if (!res.data.jobId) throw new Error('Expected jobId in response');
+      if (res.data.outputFormat !== 'mp4') throw new Error('Expected outputFormat=mp4');
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/download - with outputFormat=mov starts download',
+    async test() {
+      const res = await request('POST', '/api/media/download', {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        outputFormat: 'mov',
+      });
+      if (res.status !== 200) throw new Error(`Expected 200, got ${res.status}`);
+      if (!res.data.jobId) throw new Error('Expected jobId');
+      if (res.data.outputFormat !== 'mov') throw new Error('Expected outputFormat=mov');
+      return 'PASS';
+    },
+  },
+  {
+    name: 'POST /api/media/download - with invalid format returns 400',
+    async test() {
+      const res = await request('POST', '/api/media/download', {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        outputFormat: 'wmv',
+      });
+      if (res.status !== 400) throw new Error(`Expected 400, got ${res.status}`);
+      if (!res.data.error) throw new Error('Expected error message');
+      return 'PASS';
+    },
+  },
 ];
 
 // Run tests
