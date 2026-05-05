@@ -135,24 +135,33 @@ router.post('/info/bulk', async (req, res) => {
 /**
  * POST /api/media/download
  * Start a download job
- * Body: { url: string, format?: 'video'|'audio', formatId?: string }
+ * Body: { url: string, format?: 'video'|'audio', formatId?: string, outputFormat?: 'mp4'|'mov'|'avi' }
  * Returns: { jobId: string }
  */
 router.post('/download', async (req, res) => {
   try {
-    const { url, format = 'video', formatId } = req.body;
+    const { url, format = 'video', formatId, outputFormat = 'mp4' } = req.body;
 
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'URL is required' });
     }
 
+    // Validate output format
+    const allowedFormats = ['mp4', 'mov', 'avi'];
+    if (!allowedFormats.includes(outputFormat)) {
+      return res.status(400).json({
+        error: `Invalid format: ${outputFormat}. Allowed: ${allowedFormats.join(', ')}`
+      });
+    }
+
     // Start the download job (yt-dlp-wrapper validates URL)
-    const jobId = ytDlp.startDownload(url, format, formatId);
+    const jobId = ytDlp.startDownload(url, format, formatId, null, outputFormat);
 
     res.json({
       success: true,
       jobId,
-      message: 'Download started'
+      message: 'Download started',
+      outputFormat
     });
   } catch (error) {
     console.error('Error starting download:', error);
@@ -283,6 +292,45 @@ router.get('/stream/:jobId', async (req, res) => {
   } catch (error) {
     console.error('Error streaming file:', error);
     res.status(500).json({ error: 'Failed to stream file: ' + error.message });
+  }
+});
+
+/**
+ * POST /api/media/discover
+ * Discover all videos on a webpage (playlist, channel page, embedded videos)
+ * Body: { url: string }
+ * Returns: { type: 'playlist'|'single', videos: [...] }
+ */
+router.post('/discover', async (req, res) => {
+  try {
+    const { url } = req.body;
+
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL is required' });
+    }
+
+    const result = await ytDlp.discoverVideosOnPage(url);
+
+    res.json({
+      success: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('Error discovering videos:', error);
+    const msg = error.message || '';
+
+    if (msg.includes('No videos found')) {
+      return res.status(404).json({ error: 'No videos found on this page' });
+    }
+    if (msg.includes('Unable to extract')) {
+      return res.status(400).json({
+        error: 'Could not find any videos at this URL. Check the URL and try again.'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to discover videos: ' + error.message
+    });
   }
 });
 

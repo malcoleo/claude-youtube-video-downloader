@@ -9,12 +9,23 @@ Generates ASS (Advanced Substation Alpha) format subtitles with:
 - Bebas Neue font (or fallback)
 
 Usage:
-    python3 subtitle-renderer.py <words_with_timestamps.json> <output.ass>
+    python3 subtitle-renderer.py <words_with_timestamps.json> <output.ass> [options]
+
+Options:
+    --font-size SIZE       Base font size (default: 42)
+    --font-color COLOR     Text color in ASS hex format &H00BBGGRR& (default: &H00FFFFFF)
+    --highlight-color COLOR Keyword highlight color (default: &H00FFD700 = gold)
+    --keyword-highlight    Enable keyword highlighting (default: true)
+    --no-keyword-highlight Disable keyword highlighting
+    --emoji-overlay        Enable emoji overlays (default: false)
+    --no-emoji-overlay     Disable emoji overlays (default)
+    --position POS         Subtitle position: top/center/bottom (default: center)
 """
 
 import sys
 import json
 import os
+import argparse
 
 
 # ASS style configuration - Hormozi style for VERTICAL VIDEO (9:16 format)
@@ -362,7 +373,8 @@ def create_emoji_line(emoji_placement):
     }
 
 
-def generate_ass_subtitle(words_with_timestamps, emoji_placements=None, output_path=None):
+def generate_ass_subtitle(words_with_timestamps, emoji_placements=None, output_path=None,
+                           style=None):
     """
     Generate complete ASS subtitle file.
 
@@ -370,26 +382,43 @@ def generate_ass_subtitle(words_with_timestamps, emoji_placements=None, output_p
         words_with_timestamps: List of {'word': str, 'start': float, 'end': float, 'highlight': str}
         emoji_placements: List of {'emoji': str, 'start': float, 'end': float}
         output_path: Path to output .ass file (or None for stdout)
+        style: Dict with keys: fontSize, fontColor, highlightColor,
+               keywordHighlight, emojiOverlay, position
 
     Returns:
         ASS content as string
     """
-    # Check if we have highlights - use fallback style if not
-    has_highlights = any(w.get('highlight') for w in words_with_timestamps)
+    # Parse style options with defaults
+    s = style or {}
+    base_font_size = int(s.get('fontSize', 42))
+    text_color = s.get('fontColor', '&H00FFFFFF')
+    highlight_color = s.get('highlightColor', '&H00FFD700')
+    keyword_highlight = s.get('keywordHighlight', True)
+    emoji_overlay = s.get('emojiOverlay', False)
+    position = s.get('position', 'center')
 
-    # Build header
-    header = ASS_STYLE_CONFIG if has_highlights else ASS_STYLE_FALLBACK
+    # Map position to ASS alignment (5 = center, 8 = top center, 2 = bottom center)
+    position_map = {'top': 8, 'center': 5, 'bottom': 2}
+    alignment = position_map.get(position, 5)
+
+    # Build header with style parameters
+    header = build_ass_header(base_font_size, text_color, highlight_color, alignment)
 
     # Build events using syllable-based grouping
     events = []
 
-    # Pass all words to create_karaoke_effect for grouping
-    dialogue_results = create_karaoke_effect(words_with_timestamps)
+    if keyword_highlight:
+        dialogue_results = create_karaoke_effect(words_with_timestamps)
+    else:
+        # Strip highlight flags if keyword highlighting is disabled
+        stripped = [{**w, 'highlight': 'normal'} for w in words_with_timestamps]
+        dialogue_results = create_karaoke_effect(stripped)
+
     if dialogue_results:
         events.extend(dialogue_results)
 
-    # Add emoji overlays
-    if emoji_placements:
+    # Add emoji overlays (only if enabled)
+    if emoji_overlay and emoji_placements:
         for emoji_placement in emoji_placements:
             emoji_line = create_emoji_line(emoji_placement)
             events.append(emoji_line)
@@ -403,10 +432,10 @@ def generate_ass_subtitle(words_with_timestamps, emoji_placements=None, output_p
     for event in events:
         start_ass = format_ass_time(event['start'])
         end_ass = format_ass_time(event['end'])
-        style = event.get('style', 'Default')
+        style_name = event.get('style', 'Default')
         text = event['text']
 
-        events_section += f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{text}\n"
+        events_section += f"Dialogue: 0,{start_ass},{end_ass},{style_name},,0,0,0,,{text}\n"
 
     # Combine all sections
     full_ass = header + events_section
@@ -420,9 +449,60 @@ def generate_ass_subtitle(words_with_timestamps, emoji_placements=None, output_p
         return full_ass
 
 
+def build_ass_header(base_font_size, text_color, highlight_color, alignment):
+    """Build ASS header with configurable style parameters."""
+    default_style = f"Style: Default,Bebas Neue,{base_font_size},{text_color},&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,{alignment},10,10,100,1"
+    highlight_style = f"Style: Highlight,Bebas Neue,{base_font_size},{highlight_color},&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,{alignment},10,10,100,1"
+    emoji_style = f"Style: Emoji,Noto Color Emoji,{base_font_size},{text_color},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,{alignment},10,10,100,1"
+
+    return f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+Timer: 100.0000
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+
+{default_style}
+{highlight_style}
+{emoji_style}
+"""
+
+
+def build_ass_header_fallback(base_font_size, text_color, highlight_color, alignment):
+    """Build ASS header with Arial Black fallback font."""
+    default_style = f"Style: Default,Arial Black,{base_font_size},{text_color},&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,{alignment},10,10,100,1"
+    highlight_style = f"Style: Highlight,Arial Black,{base_font_size},{highlight_color},&H000000FF,&H00000000,&H80808080,-1,0,0,0,100,100,1.0,0,3,2.0,0,{alignment},10,10,100,1"
+    emoji_style = f"Style: Emoji,Noto Color Emoji,{base_font_size},{text_color},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,3,0,0,{alignment},10,10,100,1"
+
+    return f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+Timer: 100.0000
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+
+{default_style}
+{highlight_style}
+{emoji_style}
+"""
+
+
+def hex_to_ass_color(hex_color):
+    """Convert a hex color (#RRGGBB or RRRGGBB) to ASS format (&H00BBGGRR&)."""
+    h = hex_color.lstrip('#')
+    if len(h) == 6:
+        r, g, b = h[0:2], h[2:4], h[4:6]
+        return f'&H00{b}{g}{r}&'
+    return hex_color  # Already in ASS format
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("Usage: python3 subtitle-renderer.py <words.json> [output.ass]")
+        print("Usage: python3 subtitle-renderer.py <words.json> [output.ass] [options]")
         print("\nInput format (words.json):")
         print(json.dumps([
             {"word": "Hello", "start": 0.0, "end": 0.5, "highlight": "normal"},
@@ -430,11 +510,23 @@ if __name__ == '__main__':
         ], indent=2))
         sys.exit(1)
 
-    input_file = sys.argv[1]
-    output_file = sys.argv[2] if len(sys.argv) > 2 else None
+    parser = argparse.ArgumentParser(description='Generate Hormozi-style ASS subtitles')
+    parser.add_argument('input_file', help='JSON file with word-level timestamps')
+    parser.add_argument('output_file', nargs='?', default=None, help='Output ASS file path')
+    parser.add_argument('--font-size', type=int, default=42, help='Base font size (default: 42)')
+    parser.add_argument('--font-color', default='#FFFFFF', help='Text color hex (default: #FFFFFF)')
+    parser.add_argument('--highlight-color', default='#FFD700', help='Keyword highlight color (default: #FFD700 gold)')
+    parser.add_argument('--keyword-highlight', dest='keyword_highlight', action='store_true', default=True)
+    parser.add_argument('--no-keyword-highlight', dest='keyword_highlight', action='store_false')
+    parser.add_argument('--emoji-overlay', dest='emoji_overlay', action='store_true', default=False)
+    parser.add_argument('--no-emoji-overlay', dest='emoji_overlay', action='store_false')
+    parser.add_argument('--position', choices=['top', 'center', 'bottom'], default='center')
+    parser.set_defaults(keyword_highlight=True, emoji_overlay=False)
+
+    args = parser.parse_args()
 
     try:
-        with open(input_file, 'r') as f:
+        with open(args.input_file, 'r') as f:
             words_data = json.load(f)
 
         # Load emoji placements if provided in input
@@ -443,15 +535,24 @@ if __name__ == '__main__':
             emoji_placements = words_data.get('emojis')
             words_data = words_data['words']
 
-        result = generate_ass_subtitle(words_data, emoji_placements, output_file)
+        style = {
+            'fontSize': args.font_size,
+            'fontColor': hex_to_ass_color(args.font_color),
+            'highlightColor': hex_to_ass_color(args.highlight_color),
+            'keywordHighlight': args.keyword_highlight,
+            'emojiOverlay': args.emoji_overlay,
+            'position': args.position
+        }
 
-        if output_file:
-            print(f"ASS subtitle file created: {output_file}")
+        result = generate_ass_subtitle(words_data, emoji_placements, args.output_file, style)
+
+        if args.output_file:
+            print(f"ASS subtitle file created: {args.output_file}")
         else:
             print(result)
 
     except FileNotFoundError:
-        print(json.dumps({'error': f'File not found: {input_file}'}))
+        print(json.dumps({'error': f'File not found: {args.input_file}'}))
         sys.exit(1)
     except json.JSONDecodeError as e:
         print(json.dumps({'error': f'Invalid JSON: {str(e)}'}))

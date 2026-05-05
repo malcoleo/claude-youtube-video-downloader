@@ -1,0 +1,78 @@
+/* client/src/components/FormatSelector.css */
+
+.format-selector {
+  margin: 16px 0;
+}
+
+.format-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary, #292928);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.format-options {
+  display: flex;
+  gap: 8px;
+}
+
+.format-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 18px;
+  border: 1.5px solid var(--border-color, #d6d6d4);
+  border-radius: 8px;
+  background: var(--card-bg, #fff);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+}
+
+.format-chip:hover:not(:disabled) {
+  border-color: var(--primary, #FF6B3F);
+  background: var(--primary-light, #FFECE6);
+  transform: translateY(-1px);
+}
+
+.format-chip.selected {
+  border-color: var(--primary, #FF6B3F);
+  background: var(--primary, #FF6B3F);
+  color: white;
+}
+
+.format-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.format-chip-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.format-chip-desc {
+  font-size: 0.65rem;
+  opacity: 0.7;
+  margin-top: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dark-mode .format-chip {
+  background: var(--bg-secondary, #2a2a29);
+  border-color: var(--border-dark, #3a3a38);
+  color: var(--text-primary, #f5f5f4);
+}
+
+.dark-mode .format-chip:hover:not(:disabled) {
+  background: rgba(255, 107, 63, 0.15);
+}
+
+.dark-mode .format-chip.selected {
+  background: var(--primary, #FF6B3F);
+}

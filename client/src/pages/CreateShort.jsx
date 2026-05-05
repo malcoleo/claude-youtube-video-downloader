@@ -1,5 +1,6 @@
 // client/src/pages/CreateShort.jsx
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import ReactPlayer from 'react-player';
 import axios from 'axios';
 import {
@@ -42,6 +43,17 @@ import './CreateShort.css';
 const CreateShortPage = () => {
   const { state: s, handlers: h, utilities: u, refs } = useVideoWorkflow();
   const containerRef = useRef(null);
+  const location = useLocation();
+
+  // Auto-populate URL when navigating from DownloadPage with video context
+  useEffect(() => {
+    const navState = location.state;
+    if (navState?.fromDownload && navState?.downloadUrl) {
+      h.setYoutubeUrl(navState.downloadUrl);
+      // Auto-trigger video info fetch
+      h.handleGetYoutubeInfo();
+    }
+  }, [location.state?.downloadUrl, location.state?.fromDownload]);
 
   // Keyboard shortcuts
   const keyboardShortcuts = {
@@ -483,6 +495,59 @@ const CreateShortPage = () => {
                   <span className="qa-preview-label"><Eye size={14} weight="fill" style={{ marginRight: 4, verticalAlign: 'middle' }} /> Hover to preview</span>
                 </div>
 
+                {/* Segment Trim Controls */}
+                {(s.segmentTrims?.[qa.id]?.startTrim !== 0 || s.segmentTrims?.[qa.id]?.endTrim !== 0) && (
+                  <div className="segment-trim-bar">
+                    <span className="trim-label">
+                      Trimmed: {s.segmentTrims[qa.id].startTrim > 0 ? '+' : ''}{s.segmentTrims[qa.id].startTrim}s start
+                      {' · '}
+                      {s.segmentTrims[qa.id].endTrim > 0 ? '+' : ''}{s.segmentTrims[qa.id].endTrim}s end
+                    </span>
+                    <button
+                      className="trim-reset-btn"
+                      onClick={() => h.resetSegmentTrim(qa.id)}
+                      title="Reset trim"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                )}
+
+                <div className="segment-trim-controls">
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'start', -0.5)}
+                    title="Start 0.5s earlier"
+                    disabled={s.isProcessing}
+                  >
+                    −0.5s
+                  </button>
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'start', 0.5)}
+                    title="Start 0.5s later"
+                    disabled={s.isProcessing}
+                  >
+                    +0.5s
+                  </button>
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'end', 0.5)}
+                    title="End 0.5s later"
+                    disabled={s.isProcessing}
+                  >
+                    +0.5s end
+                  </button>
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'end', -0.5)}
+                    title="End 0.5s earlier"
+                    disabled={s.isProcessing}
+                  >
+                    −0.5s end
+                  </button>
+                </div>
+
                 {qa.reasons && qa.reasons.length > 0 && (
                   <div className="qa-reasons">
                     {qa.reasons.slice(0, 3).map((reason, idx) => (
@@ -534,6 +599,24 @@ const CreateShortPage = () => {
               Multiple clips will be bundled into a ZIP file. Files are named: qa-01-{s.selectedFormat}.mp4, qa-02-{s.selectedFormat}.mp4, etc.
             </p>
 
+            {/* Export Progress */}
+            {s.exportProgress && (
+              <div className="export-progress">
+                <div className="export-progress-header">
+                  <span>{s.exportProgress.stage}</span>
+                  <span className="export-progress-count">
+                    {s.exportProgress.current} / {s.exportProgress.total} clips
+                  </span>
+                </div>
+                <div className="export-progress-bar">
+                  <div
+                    className="export-progress-fill"
+                    style={{ width: `${(s.exportProgress.current / s.exportProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Advanced Customization Options */}
             <details className="customization-options">
               <summary>Advanced Customization <CaretDown size={16} /></summary>
@@ -563,28 +646,28 @@ const CreateShortPage = () => {
                     <div className="suggestions-panel">
                       <h6>Suggested Settings</h6>
                       <ul className="suggestions-list">
-                        {s.s.contentSuggestions.suggestedSettings.exportResolution && (
-                          <li>Resolution: <strong>{s.s.contentSuggestions.suggestedSettings.exportResolution}</strong></li>
+                        {s.contentSuggestions.suggestedSettings?.exportResolution && (
+                          <li>Resolution: <strong>{s.contentSuggestions.suggestedSettings.exportResolution}</strong></li>
                         )}
-                        {s.s.contentSuggestions.suggestedSettings.exportBitrate && (
-                          <li>Bitrate: <strong>{s.s.contentSuggestions.suggestedSettings.exportBitrate} Mbps</strong></li>
+                        {s.contentSuggestions.suggestedSettings?.exportBitrate && (
+                          <li>Bitrate: <strong>{s.contentSuggestions.suggestedSettings.exportBitrate} Mbps</strong></li>
                         )}
-                        <li>Subtitles: <strong>{s.s.contentSuggestions.suggestedSettings.addSubtitles ? 'Yes' : 'No'}</strong></li>
-                        <li>CTA: <strong>{s.s.contentSuggestions.suggestedSettings.ctaText}</strong></li>
+                        <li>Subtitles: <strong>{s.contentSuggestions.suggestedSettings?.addSubtitles ? 'Yes' : 'No'}</strong></li>
+                        <li>CTA: <strong>{s.contentSuggestions.suggestedSettings?.ctaText}</strong></li>
                       </ul>
 
-                      {s.s.contentSuggestions.clipLengthSuggestion && (
+                      {s.contentSuggestions.clipLengthSuggestion && (
                         <div className="clip-length-suggestion">
                           <h6>Optimal Clip Length</h6>
-                          <p>Suggested: <strong>{s.s.contentSuggestions.clipLengthSuggestion.suggested || s.contentSuggestions.clipLengthSuggestion.ideal || s.contentSuggestions.clipLengthSuggestion.min} seconds</strong></p>
+                          <p>Suggested: <strong>{s.contentSuggestions.clipLengthSuggestion.suggested || s.contentSuggestions.clipLengthSuggestion.ideal || s.contentSuggestions.clipLengthSuggestion.min} seconds</strong></p>
                         </div>
                       )}
 
-                      {s.s.contentSuggestions.engagementTips && (
+                      {s.contentSuggestions.engagementTips && (
                         <div className="engagement-tips">
                           <h6>Engagement Tips</h6>
                           <ul>
-                            {s.s.contentSuggestions.engagementTips.slice(0, 3).map((tip, idx) => (
+                            {s.contentSuggestions.engagementTips.slice(0, 3).map((tip, idx) => (
                               <li key={idx}>{tip}</li>
                             ))}
                           </ul>
@@ -607,9 +690,9 @@ const CreateShortPage = () => {
                       disabled={s.isProcessing}
                     >
                       <option value="">Choose a preset...</option>
-                      {Object.keys(s.availablePresets).map(presetName => (
-                        <option key={s.presetName} value={s.presetName}>
-                          {s.presetName}
+                      {Object.keys(s.availablePresets).map((pname) => (
+                        <option key={pname} value={pname}>
+                          {pname}
                         </option>
                       ))}
                     </select>
@@ -683,6 +766,90 @@ const CreateShortPage = () => {
                     />
                     <span className="range-value">{s.watermarkSize}%</span>
                   </div>
+                </div>
+
+                {/* Hormozi Subtitles */}
+                <div className="subtitle-section">
+                  <h5>Hormozi-Style Subtitles</h5>
+
+                  <div className="input-group">
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={s.hormoziSubtitles}
+                        onChange={(e) => h.setHormoziSubtitles(e.target.checked)}
+                        disabled={s.isProcessing}
+                      />
+                      Enable word-by-word animated subtitles
+                    </label>
+                  </div>
+
+                  {s.hormoziSubtitles && (
+                    <>
+                      <div className="input-group">
+                        <label htmlFor="subtitle-font-size">Font Size:</label>
+                        <input
+                          type="range"
+                          id="subtitle-font-size"
+                          min="48"
+                          max="96"
+                          value={s.subtitleFontSize}
+                          onChange={(e) => h.setSubtitleFontSize(parseInt(e.target.value))}
+                          disabled={s.isProcessing}
+                        />
+                        <span className="range-value">{s.subtitleFontSize}px</span>
+                      </div>
+
+                      <div className="input-group">
+                        <label htmlFor="subtitle-font-color">Text Color:</label>
+                        <input
+                          type="color"
+                          id="subtitle-font-color"
+                          value={s.subtitleFontColor}
+                          onChange={(e) => h.setSubtitleFontColor(e.target.value)}
+                          disabled={s.isProcessing}
+                        />
+                      </div>
+
+                      <div className="input-group">
+                        <label htmlFor="subtitle-position">Position:</label>
+                        <select
+                          id="subtitle-position"
+                          value={s.subtitlePosition}
+                          onChange={(e) => h.setSubtitlePosition(e.target.value)}
+                          disabled={s.isProcessing}
+                        >
+                          <option value="center">Center</option>
+                          <option value="bottom">Bottom</option>
+                          <option value="top">Top</option>
+                        </select>
+                      </div>
+
+                      <div className="input-group">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={s.enableKeywordHighlight}
+                            onChange={(e) => h.setEnableKeywordHighlight(e.target.checked)}
+                            disabled={s.isProcessing}
+                          />
+                          Gold keyword highlighting
+                        </label>
+                      </div>
+
+                      <div className="input-group">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={s.enableEmojiOverlay}
+                            onChange={(e) => h.setEnableEmojiOverlay(e.target.checked)}
+                            disabled={s.isProcessing}
+                          />
+                          Emoji overlays (AI-suggested)
+                        </label>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Audio Enhancement */}

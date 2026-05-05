@@ -1,0 +1,27 @@
+/* client/src/components/SourceBadge.css */
+
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: var(--neutral-100, #f5f5f4);
+  border: 1px solid var(--neutral-200, #e7e7e5);
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  color: var(--neutral-600, #525250);
+}
+
+.source-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary, #FF6B3F);
+}
+
+.dark-mode .source-badge {
+  background: var(--neutral-200, #292928);
+  border-color: var(--neutral-300, #40403F);
+  color: var(--neutral-700, #D6D6D4);
+}

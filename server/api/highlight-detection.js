@@ -27,6 +27,21 @@ const platformOptimizer = new PlatformOptimizer();
 const videoCache = new VideoCache();
 const ffmpegOptimizer = new FFmpegOptimizer();
 
+// Export progress tracking (in-memory, keyed by exportId from query or body)
+const exportProgressMap = new Map();
+
+// GET /video/export-progress — poll for export status
+router.get('/video/export-progress', (req, res) => {
+  const { id } = req.query;
+  if (!id) return res.json({ progress: null, complete: false });
+  const progress = exportProgressMap.get(id);
+  if (!progress) return res.json({ progress: null, complete: false });
+  res.json({
+    progress,
+    complete: progress.current >= progress.total
+  });
+});
+
 /**
  * Parse an ffmpeg command string into an argument array for execFile.
  * This safely splits a shell command string into arguments, respecting quoted strings.
@@ -134,7 +149,7 @@ async function downloadMusic(url) {
  * @param {string} outputAssPath - Path to output ASS subtitle file
  * @returns {Promise<string|null>} - Path to ASS file or null on failure
  */
-async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outputAssPath) {
+async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outputAssPath, subtitleStyle) {
   try {
     // Extract audio from clip for transcription (using -ss and -t to extract only the segment)
     const tempAudioPath = clipVideoPath.replace('.mp4', '-audio.wav');
@@ -171,12 +186,26 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outpu
     const tempWordsPath = clipVideoPath.replace('.mp4', '-words.json');
     fs.writeFileSync(tempWordsPath, JSON.stringify(wordsForSubtitle, null, 2));
 
-    // Generate ASS subtitles using subtitle-renderer.py (Hormozi-style)
-    console.log('Generating Hormozi-style subtitles...');
+    // Build CLI args for subtitle renderer with style parameters
     const subtitleRendererPath = require('path').join(__dirname, '../ai/subtitle-renderer.py');
+    const pythonArgs = ['-u', subtitleRendererPath, tempWordsPath, outputAssPath];
 
+    if (subtitleStyle) {
+      if (subtitleStyle.fontSize) pythonArgs.push('--font-size', String(subtitleStyle.fontSize));
+      if (subtitleStyle.textColor) pythonArgs.push('--font-color', subtitleStyle.textColor);
+      if (subtitleStyle.keywordHighlight !== undefined) {
+        pythonArgs.push(subtitleStyle.keywordHighlight ? '--keyword-highlight' : '--no-keyword-highlight');
+      }
+      if (subtitleStyle.emojiOverlay) {
+        pythonArgs.push('--emoji-overlay');
+      }
+      if (subtitleStyle.position) pythonArgs.push('--position', subtitleStyle.position);
+    }
+
+    // Generate ASS subtitles using subtitle-renderer.py (Hormozi-style)
+    console.log('Generating Hormozi-style subtitles...', pythonArgs.slice(2).join(' '));
     await new Promise((resolve, reject) => {
-      execFile('python3', ['-u', subtitleRendererPath, tempWordsPath, outputAssPath], (err, stdout, stderr) => {
+      execFile('python3', pythonArgs, (err, stdout, stderr) => {
         if (err) {
           console.error('Subtitle renderer error:', err);
           reject(err);
@@ -777,7 +806,10 @@ router.post('/video/export-clips', async (req, res) => {
     segments: rawSegments,
     format = 'original',
     addSubtitles = false,
+    subtitleStyle = null,
     addEndFrame = false,
+    // Progress tracking
+    exportId = `export-${Date.now()}`,
     // Branding options
     watermarkUrl = '',
     watermarkPosition = 'bottom-right',
@@ -936,6 +968,9 @@ router.post('/video/export-clips', async (req, res) => {
 
     const clipPaths = [];
 
+    // Initialize export progress
+    exportProgressMap.set(exportId, { current: 0, total: segments.length, stage: 'Preparing first clip...' });
+
     // Process each segment
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
@@ -944,12 +979,18 @@ router.post('/video/export-clips', async (req, res) => {
       const safeName = `qa-${safeIndex}-${selectedFormat.suffix}`;
       const baseOutputPath = path.join(exportDir, `${safeName}-${timestamp}.mp4`);
 
+      // Update progress before processing
+      exportProgressMap.set(exportId, {
+        current: i, total: segments.length,
+        stage: `Exporting clip ${i + 1} of ${segments.length}...`
+      });
+
       // Generate subtitles if requested
       let assPath = null;
       if (addSubtitles) {
         assPath = path.join(exportDir, `${safeName}-${timestamp}.ass`);
         console.log(`Generating subtitles for clip ${i + 1}/${segments.length}...`);
-        await generateSubtitlesForClip(actualVideoPath, segment.start, segment.end, assPath);
+        await generateSubtitlesForClip(actualVideoPath, segment.start, segment.end, assPath, subtitleStyle);
       }
 
       // Reuse the base crop filter for all segments (already analyzed the full video)
@@ -1128,6 +1169,12 @@ router.post('/video/export-clips', async (req, res) => {
         hasSubtitles: !!assPath,
         hasEndFrame: addEndFrame
       });
+
+      // Update progress after successful clip
+      exportProgressMap.set(exportId, {
+        current: i + 1, total: segments.length,
+        stage: `Clip ${i + 1}/${segments.length} complete${i < segments.length - 1 ? ` — preparing next...` : ''}`
+      });
     }
 
     // If single clip, return it directly
@@ -1150,6 +1197,9 @@ router.post('/video/export-clips', async (req, res) => {
           addEndScreen: addEndScreen
         }
       });
+
+      // Clean up progress tracking after delay
+      setTimeout(() => exportProgressMap.delete(exportId), 60000);
 
       res.json({
         success: true,
@@ -1185,6 +1235,9 @@ router.post('/video/export-clips', async (req, res) => {
         // Ignore cleanup errors
       }
     }
+
+    // Clean up progress tracking after delay
+    setTimeout(() => exportProgressMap.delete(exportId), 60000);
 
     res.json({
       success: true,

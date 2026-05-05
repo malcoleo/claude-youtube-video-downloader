@@ -30,9 +30,21 @@ export function useVideoWorkflow() {
   const [stats, setStats] = useState(null);
   const [qaDetected, setQaDetected] = useState(false);
   const [chaptersAvailable, setChaptersAvailable] = useState(null);
+  // Per-segment time adjustments (seconds, relative to original times)
+  const [segmentTrims, setSegmentTrims] = useState({});
 
   // Export state
   const [selectedFormat, setSelectedFormat] = useState('tiktok');
+  // Export progress tracking
+  const [exportProgress, setExportProgress] = useState(null); // { current, total, stage }
+
+  // Hormozi subtitle state
+  const [hormoziSubtitles, setHormoziSubtitles] = useState(true);
+  const [subtitleFontSize, setSubtitleFontSize] = useState(72);
+  const [subtitleFontColor, setSubtitleFontColor] = useState('#FFFFFF');
+  const [subtitlePosition, setSubtitlePosition] = useState('center');
+  const [enableKeywordHighlight, setEnableKeywordHighlight] = useState(true);
+  const [enableEmojiOverlay, setEnableEmojiOverlay] = useState(false);
 
   // Customization state
   const [watermarkUrl, setWatermarkUrl] = useState('');
@@ -153,6 +165,8 @@ export function useVideoWorkflow() {
       setVideoPathForExport(null);
       setQaPairs([]);
       setSelectedSegments(new Set());
+      setSegmentTrims({});
+      setExportProgress(null);
       setStats(null);
       setQaDetected(false);
       setChaptersAvailable(null);
@@ -579,6 +593,47 @@ export function useVideoWorkflow() {
 
   const handleSegmentHoverOut = () => setHoveredSegment(null);
 
+  // ---- Segment trim ----
+  const adjustSegmentTime = (segmentId, field, delta) => {
+    setSegmentTrims(prev => {
+      const current = prev[segmentId] || { startTrim: 0, endTrim: 0 };
+      const updated = { ...current };
+      if (field === 'start') {
+        updated.startTrim = (current.startTrim || 0) + delta;
+      } else {
+        updated.endTrim = (current.endTrim || 0) + delta;
+      }
+      // Clamp: don't let trim make segment shorter than 2 seconds
+      const qa = qaPairs.find(q => q.id === segmentId);
+      if (qa) {
+        const effectiveStart = qa.questionStart + updated.startTrim;
+        const effectiveEnd = qa.answerEnd + updated.endTrim;
+        if (effectiveEnd - effectiveStart < 2) {
+          updated.endTrim = current.endTrim; // revert
+        }
+      }
+      return { ...prev, [segmentId]: updated };
+    });
+  };
+
+  const resetSegmentTrim = (segmentId) => {
+    setSegmentTrims(prev => {
+      const copy = { ...prev };
+      delete copy[segmentId];
+      return copy;
+    });
+  };
+
+  const getEffectiveTimes = (qa) => {
+    const trim = segmentTrims[qa.id] || { startTrim: 0, endTrim: 0 };
+    return {
+      start: qa.questionStart + (trim.startTrim || 0),
+      end: qa.answerEnd + (trim.endTrim || 0),
+    };
+  };
+
+  const clearAllTrims = () => setSegmentTrims({});
+
   // ---- Export ----
   const handleExportSelected = async () => {
     if (selectedSegments.size === 0) {
@@ -592,28 +647,53 @@ export function useVideoWorkflow() {
 
     setIsProcessing(true);
     setProcessingStage(`Preparing ${selectedSegments.size} clip(s)...`);
+    setExportProgress({ current: 0, total: selectedSegments.size, stage: 'Initializing...' });
 
     try {
-      const segmentsToExport = qaPairs.filter(qa => selectedSegments.has(qa.id)).map(qa => ({
-        start: qa.questionStart, end: qa.answerEnd, id: qa.id
-      }));
+      const segmentsToExport = qaPairs.filter(qa => selectedSegments.has(qa.id)).map(qa => {
+        const times = getEffectiveTimes(qa);
+        return { start: times.start, end: times.end, id: qa.id };
+      });
+
+      // Poll for export progress while the server processes
+      const exportId = `export-${Date.now()}`;
+      let pollTimer;
+      const pollExportProgress = () => {
+        pollTimer = setTimeout(async () => {
+          try {
+            const res = await axios.get(`/api/highlights/video/export-progress?id=${exportId}`);
+            if (res.data.progress) {
+              setExportProgress(res.data.progress);
+              setProcessingStage(res.data.progress.stage);
+            }
+            if (!res.data.complete) pollExportProgress();
+          } catch { /* polling may fail silently */ }
+        }, 1000);
+      };
+      pollExportProgress();
 
       const response = await axios.post('/api/highlights/video/export-clips', {
         videoPath: videoPathForExport,
         segments: segmentsToExport,
         format: selectedFormat,
-        addSubtitles: true,
-        subtitleStyle: {
+        addSubtitles: hormoziSubtitles,
+        subtitleStyle: hormoziSubtitles ? {
           type: 'hormozi', animation: 'word-by-word',
-          textColor: '#FFFFFF', backgroundColor: 'rgba(128, 128, 128, 0.8)',
-          backgroundPerWord: true, position: 'center',
-          fontSize: 72, fontFamily: 'Bebas Neue, Arial Black'
-        },
+          textColor: subtitleFontColor, backgroundColor: 'rgba(128, 128, 128, 0.8)',
+          backgroundPerWord: true, position: subtitlePosition,
+          fontSize: subtitleFontSize, fontFamily: 'Bebas Neue, Arial Black',
+          keywordHighlight: enableKeywordHighlight,
+          emojiOverlay: enableEmojiOverlay
+        } : null,
         watermarkUrl, watermarkPosition, watermarkSize,
         normalizeAudio, volumeAdjustment, bgMusicUrl, bgMusicVolume,
         resolution: exportResolution, bitrate: exportBitrate,
-        ctaText, addEndScreen
-      });
+        ctaText, addEndScreen,
+        exportId
+      }, { timeout: 600000 });
+
+      clearTimeout(pollTimer);
+      setExportProgress({ current: selectedSegments.size, total: selectedSegments.size, stage: 'Complete!' });
 
       if (response.data.success) {
         window.location.href = `http://localhost:5001${response.data.downloadUrl}`;
@@ -625,6 +705,7 @@ export function useVideoWorkflow() {
       setError('Failed to export clips: ' + (err.response?.data?.error || err.message));
     } finally {
       setProcessingStage('');
+      setExportProgress(null);
       setIsProcessing(false);
     }
   };
@@ -693,6 +774,12 @@ export function useVideoWorkflow() {
         setThumbnailTemplate(settings.thumbnailTemplate || 'none');
         setCtaText(settings.ctaText || 'Watch full video');
         setAddEndScreen(settings.addEndScreen !== undefined ? settings.addEndScreen : true);
+        setHormoziSubtitles(settings.hormoziSubtitles !== undefined ? settings.hormoziSubtitles : true);
+        setSubtitleFontSize(settings.subtitleFontSize || 72);
+        setSubtitleFontColor(settings.subtitleFontColor || '#FFFFFF');
+        setSubtitlePosition(settings.subtitlePosition || 'center');
+        setEnableKeywordHighlight(settings.enableKeywordHighlight !== undefined ? settings.enableKeywordHighlight : true);
+        setEnableEmojiOverlay(settings.enableEmojiOverlay || false);
         alert(`Preset "${presetId}" applied successfully!`);
       }
     } catch (err) {
@@ -720,7 +807,9 @@ export function useVideoWorkflow() {
         bgMusicUrl, bgMusicVolume,
         exportResolution, exportBitrate,
         thumbnailTitle, thumbnailTemplate,
-        ctaText, addEndScreen
+        ctaText, addEndScreen,
+        hormoziSubtitles, subtitleFontSize, subtitleFontColor, subtitlePosition,
+        enableKeywordHighlight, enableEmojiOverlay
       };
       const userId = getCurrentUserId();
       const response = await axios.post(`/api/presets/${userId}`, {
@@ -819,11 +908,15 @@ export function useVideoWorkflow() {
       isLoading, isProcessing, processingStage, downloadingQuality,
       downloadProgress,
       qaPairs, selectedSegments, hoveredSegment, stats, qaDetected, chaptersAvailable,
+      segmentTrims,
+      exportProgress,
       selectedFormat,
       watermarkUrl, watermarkPosition, watermarkSize,
       normalizeAudio, volumeAdjustment, bgMusicUrl, bgMusicVolume,
       exportResolution, exportBitrate,
       thumbnailTitle, thumbnailTemplate, ctaText, addEndScreen,
+      hormoziSubtitles, subtitleFontSize, subtitleFontColor, subtitlePosition,
+      enableKeywordHighlight, enableEmojiOverlay,
       availablePresets, selectedPreset, presetName,
       history, showHistory,
       showSocialMediaManager,
@@ -844,6 +937,7 @@ export function useVideoWorkflow() {
       handleOneClickDownloadAndHighlights,
       toggleSegmentSelection, selectAll, deselectAll,
       handleSegmentHover, handleSegmentHoverOut,
+      adjustSegmentTime, resetSegmentTrim, getEffectiveTimes, clearAllTrims,
       handleExportSelected,
       handleGenerateThumbnail,
       loadPresets, applyPreset, handlePresetChange, savePreset,
@@ -854,7 +948,15 @@ export function useVideoWorkflow() {
       setUploadedFile,
       setShowSocialMediaManager, setShowBulkUrlInput, setBulkUrlData,
       setSelectedQuality, setSelectedFormat,
-      setShowHistory
+      setShowHistory,
+      setHormoziSubtitles, setSubtitleFontSize, setSubtitleFontColor, setSubtitlePosition,
+      setEnableKeywordHighlight, setEnableEmojiOverlay,
+      setWatermarkUrl, setWatermarkPosition, setWatermarkSize,
+      setNormalizeAudio, setVolumeAdjustment, setBgMusicUrl, setBgMusicVolume,
+      setExportResolution, setExportBitrate,
+      setThumbnailTitle, setThumbnailTemplate,
+      setCtaText, setAddEndScreen,
+      setPresetName,
     },
     // Utilities
     utilities: { getPriorityColor, getScoreColor, formatTime }

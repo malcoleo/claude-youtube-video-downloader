@@ -6,6 +6,72 @@ const { execFile } = require('child_process');
 const fs = require('fs').promises;
 const path = require('path');
 
+// Map yt-dlp extractor names to display labels
+const EXTRACTOR_LABELS = {
+  youtube: 'YouTube',
+  youtubeshorts: 'YouTube Shorts',
+  'youtube Tab': 'YouTube Tab',
+  tiktok: 'TikTok',
+  instagram: 'Instagram',
+  twitter: 'X (Twitter)',
+  'twitter Card': 'X (Twitter)',
+  twitterbroadcast: 'X (Twitter)',
+  facebook: 'Facebook',
+  vimeo: 'Vimeo',
+  dailymotion: 'Dailymotion',
+  rumble: 'Rumble',
+  reddit: 'Reddit',
+  'twitch Clipping': 'Twitch',
+  'twitch Video': 'Twitch',
+  soundcloud: 'SoundCloud',
+  'spotify Show': 'Spotify',
+  bilibili: 'Bilibili',
+  'baidu SearchVideo': 'Baidu',
+  'weibo Media': 'Weibo',
+  hulu: 'Hulu',
+  netflix: 'Netflix',
+  peacock: 'Peacock',
+  crunchyroll: 'Crunchyroll'
+};
+
+// Map extractor names to Phosphor icon names
+const EXTRACTOR_ICONS = {
+  youtube: 'YoutubeLogo',
+  youtubeshorts: 'YoutubeLogo',
+  'youtube Tab': 'YoutubeLogo',
+  tiktok: 'TiktokLogo',
+  instagram: 'InstagramLogo',
+  twitter: 'XLogo',
+  'twitter Card': 'XLogo',
+  twitterbroadcast: 'XLogo',
+  facebook: 'FacebookLogo',
+  vimeo: 'VimeoLogo',
+  dailymotion: 'FilmStripLogo',
+  rumble: 'PlayCircleLogo',
+  reddit: 'RedditLogo',
+  'twitch Clipping': 'TwitchLogo',
+  'twitch Video': 'TwitchLogo',
+  soundcloud: 'SpeakerSimpleHighLogo',
+  'spotify Show': 'SpotifyLogo',
+  bilibili: 'GlobeLogo',
+  'baidu SearchVideo': 'GlobeLogo',
+  'weibo Media': 'GlobeLogo',
+  hulu: 'TelevisionLogo',
+  netflix: 'FilmStripLogo',
+  peacock: 'TelevisionLogo',
+  crunchyroll: 'FilmStripLogo'
+};
+
+function mapExtractorToLabel(extractor) {
+  if (!extractor) return 'Unknown';
+  return EXTRACTOR_LABELS[extractor] || extractor.charAt(0).toUpperCase() + extractor.slice(1);
+}
+
+function mapExtractorToIcon(extractor) {
+  if (!extractor) return 'Globe';
+  return EXTRACTOR_ICONS[extractor] || 'Globe';
+}
+
 class YtDlpWrapper {
   constructor(options = {}) {
     this.downloadDir = options.downloadDir || path.join(__dirname, '../../downloads');
@@ -150,7 +216,13 @@ class YtDlpWrapper {
             description: info.description || '',
             upload_date: info.upload_date,
             view_count: info.view_count,
-            like_count: info.like_count
+            like_count: info.like_count,
+            // Source detection — auto-identified from the URL
+            source: {
+              type: info.extractor || 'unknown',
+              label: mapExtractorToLabel(info.extractor),
+              icon: mapExtractorToIcon(info.extractor)
+            }
           });
         } catch (e) {
           reject(new Error('Failed to parse video info: ' + e.message));
@@ -165,9 +237,10 @@ class YtDlpWrapper {
    * @param {string} formatChoice - 'video' or 'audio'
    * @param {string} formatId - Optional specific format ID
    * @param {Function} onProgress - Optional progress callback
+   * @param {string} outputFormat - Optional output format: 'mp4', 'mov', 'avi'
    * @returns {Promise<string>} Job ID
    */
-  startDownload(url, formatChoice = 'video', formatId = null, onProgress = null) {
+  startDownload(url, formatChoice = 'video', formatId = null, onProgress = null, outputFormat = 'mp4') {
     // Validate URL
     const validation = this.validateUrl(url);
     if (!validation.valid) {
@@ -181,6 +254,7 @@ class YtDlpWrapper {
       url,
       formatChoice,
       formatId,
+      outputFormat,
       startTime: Date.now(),
       progress: 0
     });
@@ -262,16 +336,35 @@ class YtDlpWrapper {
           fs.unlink(f).catch(() => {});
         });
 
-        job.status = 'done';
-        job.file = mainFile;
-        job.filename = path.basename(mainFile);
+        // Convert to target format if not MP4
+        const targetFormat = job.outputFormat || 'mp4';
+        if (targetFormat !== 'mp4' && formatChoice !== 'audio') {
+          this.convertFormat(mainFile, targetFormat)
+            .then(convertedPath => {
+              job.status = 'done';
+              job.file = convertedPath;
+              job.filename = path.basename(convertedPath);
+            })
+            .catch(err => {
+              // Fall back to the original MP4 if conversion fails
+              job.status = 'done';
+              job.file = mainFile;
+              job.filename = path.basename(mainFile);
+              job.conversionError = err.message;
+              console.error('Format conversion failed, using MP4:', err.message);
+            });
+        } else {
+          job.status = 'done';
+          job.file = mainFile;
+          job.filename = path.basename(mainFile);
+        }
 
         // Sanitize filename with title if available
         if (job.title) {
           const safeTitle = job.title.replace(/[\\/:*?"<>|]/g, '').substring(0, 30).trim();
           if (safeTitle) {
-            const ext = path.extname(mainFile);
-            job.filename = `${safeTitle}${ext}`;
+            const currentExt = path.extname(job.filename || '');
+            job.filename = `${safeTitle}${currentExt}`;
           }
         }
 
@@ -424,6 +517,110 @@ class YtDlpWrapper {
     }
 
     return results;
+  }
+
+  /**
+   * Convert downloaded video to target format via FFmpeg
+   * @param {string} inputPath - Path to downloaded MP4
+   * @param {string} targetFormat - 'mov' or 'avi'
+   * @returns {Promise<string>} Path to converted file
+   */
+  convertFormat(inputPath, targetFormat) {
+    const outputPath = inputPath.replace(/\.mp4$/, `.${targetFormat}`);
+
+    return new Promise((resolve, reject) => {
+      let args;
+
+      if (targetFormat === 'mov') {
+        // MOV: stream copy (no re-encoding, near-instant)
+        args = ['-i', inputPath, '-c', 'copy', '-movflags', '+faststart', outputPath];
+      } else if (targetFormat === 'avi') {
+        // AVI: H.264 not universally supported, use mpeg4 codec
+        args = ['-i', inputPath, '-c:v', 'mpeg4', '-q:v', '5', '-c:a', 'libmp3lame', '-b:a', '192k', outputPath];
+      } else {
+        return reject(new Error(`Unsupported target format: ${targetFormat}`));
+      }
+
+      execFile('ffmpeg', args, {
+        encoding: 'utf8',
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 300000,  // 5 min timeout for conversion
+        shell: false
+      }, (error, stdout, stderr) => {
+        if (error) {
+          return reject(new Error(`FFmpeg conversion failed: ${stderr || error.message}`));
+        }
+
+        // Clean up original MP4 after successful conversion
+        fs.unlink(inputPath).catch(() => {});
+        resolve(outputPath);
+      });
+    });
+  }
+
+  /**
+   * Discover all videos on a webpage (playlist, channel page, embedded videos)
+   * @param {string} url - Webpage URL
+   * @returns {Promise<Object>} { type: 'playlist'|'single', videos: [...] }
+   */
+  async discoverVideosOnPage(url) {
+    const validation = this.validateUrl(url);
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
+
+    return new Promise((resolve, reject) => {
+      const args = [
+        '--flat-playlist',
+        '--dump-single-json',
+        '--no-warnings',
+        url
+      ];
+
+      execFile('yt-dlp', args, {
+        encoding: 'utf8',
+        maxBuffer: 50 * 1024 * 1024,
+        timeout: 60000,
+        shell: false
+      }, (error, stdout, stderr) => {
+        if (error) {
+          return reject(new Error(stderr || error.message));
+        }
+
+        try {
+          const data = JSON.parse(stdout);
+
+          if (data.entries && Array.isArray(data.entries)) {
+            resolve({
+              type: 'playlist',
+              title: data.title || data.fulltitle || 'Playlist',
+              videos: data.entries.map(e => ({
+                url: e.url || `https://www.youtube.com/watch?v=${e.id}`,
+                title: e.title || 'Untitled',
+                duration: e.duration,
+                thumbnail: e.thumbnail
+              }))
+            });
+          } else if (data.title) {
+            // Single video — treat as list of 1
+            resolve({
+              type: 'single',
+              title: data.title,
+              videos: [{
+                url: url,
+                title: data.title,
+                duration: data.duration,
+                thumbnail: data.thumbnail
+              }]
+            });
+          } else {
+            reject(new Error('No videos found on this page'));
+          }
+        } catch (e) {
+          reject(new Error('Failed to parse page content: ' + e.message));
+        }
+      });
+    });
   }
 
   /**
