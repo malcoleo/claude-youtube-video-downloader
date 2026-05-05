@@ -245,6 +245,7 @@
 .dark-mode .preset-section h5,
 .dark-mode .branding-section h5,
 .dark-mode .audio-section h5,
+.dark-mode .subtitle-section h5,
 .dark-mode .quality-section h5,
 .dark-mode .thumbnail-section h5,
 .dark-mode .cta-section h5 {
@@ -260,6 +261,10 @@
   border-color: var(--neutral-700);
   background: var(--neutral-900);
   color: var(--neutral-200);
+}
+
+.dark-mode .input-group input[type="color"] {
+  border-color: var(--neutral-700);
 }
 
 .dark-mode .range-value {
@@ -1260,6 +1265,7 @@
 
 .branding-section,
 .audio-section,
+.subtitle-section,
 .quality-section,
 .thumbnail-section,
 .cta-section {
@@ -1272,6 +1278,7 @@
 .preset-section h5,
 .branding-section h5,
 .audio-section h5,
+.subtitle-section h5,
 .quality-section h5,
 .thumbnail-section h5,
 .cta-section h5 {
@@ -1319,6 +1326,15 @@
 .input-group input[type="range"] {
   padding: 0;
   height: 24px;
+}
+
+.input-group input[type="color"] {
+  width: 48px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid var(--neutral-300);
+  border-radius: var(--radius-md);
+  cursor: pointer;
 }
 
 .range-value {

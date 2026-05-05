@@ -34,6 +34,14 @@ export function useVideoWorkflow() {
   // Export state
   const [selectedFormat, setSelectedFormat] = useState('tiktok');
 
+  // Hormozi subtitle state
+  const [hormoziSubtitles, setHormoziSubtitles] = useState(true);
+  const [subtitleFontSize, setSubtitleFontSize] = useState(72);
+  const [subtitleFontColor, setSubtitleFontColor] = useState('#FFFFFF');
+  const [subtitlePosition, setSubtitlePosition] = useState('center');
+  const [enableKeywordHighlight, setEnableKeywordHighlight] = useState(true);
+  const [enableEmojiOverlay, setEnableEmojiOverlay] = useState(false);
+
   // Customization state
   const [watermarkUrl, setWatermarkUrl] = useState('');
   const [watermarkPosition, setWatermarkPosition] = useState('bottom-right');
@@ -602,13 +610,15 @@ export function useVideoWorkflow() {
         videoPath: videoPathForExport,
         segments: segmentsToExport,
         format: selectedFormat,
-        addSubtitles: true,
-        subtitleStyle: {
+        addSubtitles: hormoziSubtitles,
+        subtitleStyle: hormoziSubtitles ? {
           type: 'hormozi', animation: 'word-by-word',
-          textColor: '#FFFFFF', backgroundColor: 'rgba(128, 128, 128, 0.8)',
-          backgroundPerWord: true, position: 'center',
-          fontSize: 72, fontFamily: 'Bebas Neue, Arial Black'
-        },
+          textColor: subtitleFontColor, backgroundColor: 'rgba(128, 128, 128, 0.8)',
+          backgroundPerWord: true, position: subtitlePosition,
+          fontSize: subtitleFontSize, fontFamily: 'Bebas Neue, Arial Black',
+          keywordHighlight: enableKeywordHighlight,
+          emojiOverlay: enableEmojiOverlay
+        } : null,
         watermarkUrl, watermarkPosition, watermarkSize,
         normalizeAudio, volumeAdjustment, bgMusicUrl, bgMusicVolume,
         resolution: exportResolution, bitrate: exportBitrate,
@@ -693,6 +703,12 @@ export function useVideoWorkflow() {
         setThumbnailTemplate(settings.thumbnailTemplate || 'none');
         setCtaText(settings.ctaText || 'Watch full video');
         setAddEndScreen(settings.addEndScreen !== undefined ? settings.addEndScreen : true);
+        setHormoziSubtitles(settings.hormoziSubtitles !== undefined ? settings.hormoziSubtitles : true);
+        setSubtitleFontSize(settings.subtitleFontSize || 72);
+        setSubtitleFontColor(settings.subtitleFontColor || '#FFFFFF');
+        setSubtitlePosition(settings.subtitlePosition || 'center');
+        setEnableKeywordHighlight(settings.enableKeywordHighlight !== undefined ? settings.enableKeywordHighlight : true);
+        setEnableEmojiOverlay(settings.enableEmojiOverlay || false);
         alert(`Preset "${presetId}" applied successfully!`);
       }
     } catch (err) {
@@ -720,7 +736,9 @@ export function useVideoWorkflow() {
         bgMusicUrl, bgMusicVolume,
         exportResolution, exportBitrate,
         thumbnailTitle, thumbnailTemplate,
-        ctaText, addEndScreen
+        ctaText, addEndScreen,
+        hormoziSubtitles, subtitleFontSize, subtitleFontColor, subtitlePosition,
+        enableKeywordHighlight, enableEmojiOverlay
       };
       const userId = getCurrentUserId();
       const response = await axios.post(`/api/presets/${userId}`, {
@@ -824,6 +842,8 @@ export function useVideoWorkflow() {
       normalizeAudio, volumeAdjustment, bgMusicUrl, bgMusicVolume,
       exportResolution, exportBitrate,
       thumbnailTitle, thumbnailTemplate, ctaText, addEndScreen,
+      hormoziSubtitles, subtitleFontSize, subtitleFontColor, subtitlePosition,
+      enableKeywordHighlight, enableEmojiOverlay,
       availablePresets, selectedPreset, presetName,
       history, showHistory,
       showSocialMediaManager,
@@ -854,7 +874,15 @@ export function useVideoWorkflow() {
       setUploadedFile,
       setShowSocialMediaManager, setShowBulkUrlInput, setBulkUrlData,
       setSelectedQuality, setSelectedFormat,
-      setShowHistory
+      setShowHistory,
+      setHormoziSubtitles, setSubtitleFontSize, setSubtitleFontColor, setSubtitlePosition,
+      setEnableKeywordHighlight, setEnableEmojiOverlay,
+      setWatermarkUrl, setWatermarkPosition, setWatermarkSize,
+      setNormalizeAudio, setVolumeAdjustment, setBgMusicUrl, setBgMusicVolume,
+      setExportResolution, setExportBitrate,
+      setThumbnailTitle, setThumbnailTemplate,
+      setCtaText, setAddEndScreen,
+      setPresetName,
     },
     // Utilities
     utilities: { getPriorityColor, getScoreColor, formatTime }
