@@ -27,6 +27,21 @@ const platformOptimizer = new PlatformOptimizer();
 const videoCache = new VideoCache();
 const ffmpegOptimizer = new FFmpegOptimizer();
 
+// Export progress tracking (in-memory, keyed by exportId from query or body)
+const exportProgressMap = new Map();
+
+// GET /video/export-progress — poll for export status
+router.get('/video/export-progress', (req, res) => {
+  const { id } = req.query;
+  if (!id) return res.json({ progress: null, complete: false });
+  const progress = exportProgressMap.get(id);
+  if (!progress) return res.json({ progress: null, complete: false });
+  res.json({
+    progress,
+    complete: progress.current >= progress.total
+  });
+});
+
 /**
  * Parse an ffmpeg command string into an argument array for execFile.
  * This safely splits a shell command string into arguments, respecting quoted strings.
@@ -793,6 +808,8 @@ router.post('/video/export-clips', async (req, res) => {
     addSubtitles = false,
     subtitleStyle = null,
     addEndFrame = false,
+    // Progress tracking
+    exportId = `export-${Date.now()}`,
     // Branding options
     watermarkUrl = '',
     watermarkPosition = 'bottom-right',
@@ -951,6 +968,9 @@ router.post('/video/export-clips', async (req, res) => {
 
     const clipPaths = [];
 
+    // Initialize export progress
+    exportProgressMap.set(exportId, { current: 0, total: segments.length, stage: 'Preparing first clip...' });
+
     // Process each segment
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i];
@@ -958,6 +978,12 @@ router.post('/video/export-clips', async (req, res) => {
       const safeIndex = (i + 1).toString().padStart(2, '0');
       const safeName = `qa-${safeIndex}-${selectedFormat.suffix}`;
       const baseOutputPath = path.join(exportDir, `${safeName}-${timestamp}.mp4`);
+
+      // Update progress before processing
+      exportProgressMap.set(exportId, {
+        current: i, total: segments.length,
+        stage: `Exporting clip ${i + 1} of ${segments.length}...`
+      });
 
       // Generate subtitles if requested
       let assPath = null;
@@ -1143,6 +1169,12 @@ router.post('/video/export-clips', async (req, res) => {
         hasSubtitles: !!assPath,
         hasEndFrame: addEndFrame
       });
+
+      // Update progress after successful clip
+      exportProgressMap.set(exportId, {
+        current: i + 1, total: segments.length,
+        stage: `Clip ${i + 1}/${segments.length} complete${i < segments.length - 1 ? ` — preparing next...` : ''}`
+      });
     }
 
     // If single clip, return it directly
@@ -1165,6 +1197,9 @@ router.post('/video/export-clips', async (req, res) => {
           addEndScreen: addEndScreen
         }
       });
+
+      // Clean up progress tracking after delay
+      setTimeout(() => exportProgressMap.delete(exportId), 60000);
 
       res.json({
         success: true,
@@ -1200,6 +1235,9 @@ router.post('/video/export-clips', async (req, res) => {
         // Ignore cleanup errors
       }
     }
+
+    // Clean up progress tracking after delay
+    setTimeout(() => exportProgressMap.delete(exportId), 60000);
 
     res.json({
       success: true,

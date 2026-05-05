@@ -1,5 +1,6 @@
 // client/src/pages/CreateShort.jsx
-import React, { useRef } from 'react';
+import React, { useRef, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import ReactPlayer from 'react-player';
 import axios from 'axios';
 import {
@@ -42,6 +43,17 @@ import './CreateShort.css';
 const CreateShortPage = () => {
   const { state: s, handlers: h, utilities: u, refs } = useVideoWorkflow();
   const containerRef = useRef(null);
+  const location = useLocation();
+
+  // Auto-populate URL when navigating from DownloadPage with video context
+  useEffect(() => {
+    const navState = location.state;
+    if (navState?.fromDownload && navState?.downloadUrl) {
+      h.setYoutubeUrl(navState.downloadUrl);
+      // Auto-trigger video info fetch
+      h.handleGetYoutubeInfo();
+    }
+  }, [location.state?.downloadUrl, location.state?.fromDownload]);
 
   // Keyboard shortcuts
   const keyboardShortcuts = {
@@ -483,6 +495,59 @@ const CreateShortPage = () => {
                   <span className="qa-preview-label"><Eye size={14} weight="fill" style={{ marginRight: 4, verticalAlign: 'middle' }} /> Hover to preview</span>
                 </div>
 
+                {/* Segment Trim Controls */}
+                {(s.segmentTrims?.[qa.id]?.startTrim !== 0 || s.segmentTrims?.[qa.id]?.endTrim !== 0) && (
+                  <div className="segment-trim-bar">
+                    <span className="trim-label">
+                      Trimmed: {s.segmentTrims[qa.id].startTrim > 0 ? '+' : ''}{s.segmentTrims[qa.id].startTrim}s start
+                      {' · '}
+                      {s.segmentTrims[qa.id].endTrim > 0 ? '+' : ''}{s.segmentTrims[qa.id].endTrim}s end
+                    </span>
+                    <button
+                      className="trim-reset-btn"
+                      onClick={() => h.resetSegmentTrim(qa.id)}
+                      title="Reset trim"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                )}
+
+                <div className="segment-trim-controls">
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'start', -0.5)}
+                    title="Start 0.5s earlier"
+                    disabled={s.isProcessing}
+                  >
+                    −0.5s
+                  </button>
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'start', 0.5)}
+                    title="Start 0.5s later"
+                    disabled={s.isProcessing}
+                  >
+                    +0.5s
+                  </button>
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'end', 0.5)}
+                    title="End 0.5s later"
+                    disabled={s.isProcessing}
+                  >
+                    +0.5s end
+                  </button>
+                  <button
+                    className="trim-btn"
+                    onClick={() => h.adjustSegmentTime(qa.id, 'end', -0.5)}
+                    title="End 0.5s earlier"
+                    disabled={s.isProcessing}
+                  >
+                    −0.5s end
+                  </button>
+                </div>
+
                 {qa.reasons && qa.reasons.length > 0 && (
                   <div className="qa-reasons">
                     {qa.reasons.slice(0, 3).map((reason, idx) => (
@@ -533,6 +598,24 @@ const CreateShortPage = () => {
             <p className="export-hint">
               Multiple clips will be bundled into a ZIP file. Files are named: qa-01-{s.selectedFormat}.mp4, qa-02-{s.selectedFormat}.mp4, etc.
             </p>
+
+            {/* Export Progress */}
+            {s.exportProgress && (
+              <div className="export-progress">
+                <div className="export-progress-header">
+                  <span>{s.exportProgress.stage}</span>
+                  <span className="export-progress-count">
+                    {s.exportProgress.current} / {s.exportProgress.total} clips
+                  </span>
+                </div>
+                <div className="export-progress-bar">
+                  <div
+                    className="export-progress-fill"
+                    style={{ width: `${(s.exportProgress.current / s.exportProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Advanced Customization Options */}
             <details className="customization-options">

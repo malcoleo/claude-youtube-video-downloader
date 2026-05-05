@@ -410,6 +410,21 @@
   color: var(--neutral-200);
 }
 
+.dark-mode .segment-trim-bar {
+  background: rgba(255, 107, 63, 0.1);
+}
+
+.dark-mode .export-progress {
+  background: var(--neutral-800);
+  border-color: var(--neutral-700);
+}
+
+.dark-mode .trim-btn {
+  background: var(--neutral-800);
+  border-color: var(--neutral-700);
+  color: var(--neutral-300);
+}
+
 /* Dark Mode - Empty States */
 .dark-mode .empty-state {
   background: var(--neutral-800);
@@ -1750,6 +1765,107 @@
   font-size: var(--text-xs, 11px);
   color: var(--primary);
   font-variant-numeric: tabular-nums;
+}
+
+/* Segment Trim Controls */
+.segment-trim-controls {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px 4px;
+  border-top: 1px solid var(--neutral-100);
+}
+
+.trim-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid var(--neutral-200);
+  border-radius: 6px;
+  background: var(--neutral-50);
+  color: var(--neutral-600);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.trim-btn:hover:not(:disabled) {
+  background: var(--neutral-100);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.trim-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.segment-trim-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: var(--primary-light, #FFF7F3);
+  border-top: 1px solid var(--neutral-100);
+}
+
+.trim-label {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 500;
+}
+
+.trim-reset-btn {
+  padding: 2px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.trim-reset-btn:hover {
+  background: var(--primary);
+  color: white;
+}
+
+/* Export Progress */
+.export-progress {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid var(--neutral-200);
+  border-radius: var(--radius-md);
+  background: var(--neutral-50);
+}
+
+.export-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.export-progress-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.export-progress-bar {
+  height: 6px;
+  background: var(--neutral-200);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.export-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary) 0%, var(--primary-hover) 100%);
+  border-radius: 3px;
+  transition: width 0.5s ease;
 }
 
 /* Export Section - Simplified for MVP */

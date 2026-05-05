@@ -1,6 +1,6 @@
 // client/src/pages/DownloadPage.jsx
 import React, { useState, useRef, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import useDownloadWorkflow from '../hooks/useDownloadWorkflow';
 import SourceBadge from '../components/SourceBadge';
 import FormatSelector from '../components/FormatSelector';
@@ -8,6 +8,7 @@ import { QualitySelector } from '../components/QualitySelector';
 import './DownloadPage.css';
 
 const DownloadPage = () => {
+  const navigate = useNavigate();
   const [url, setUrl] = useState('');
   const [selectedQuality, setSelectedQuality] = useState(null);
   const [selectedFormat, setSelectedFormat] = useState('mp4');
@@ -258,9 +259,12 @@ const DownloadPage = () => {
             >
               Download File
             </button>
-            <Link to="/create-short" className="secondary-action-btn">
+            <button
+              className="secondary-action-btn"
+              onClick={() => navigate('/create-short', { state: { fromDownload: true, downloadUrl: url, downloadComplete: downloadComplete } })}
+            >
               Create Clips from This
-            </Link>
+            </button>
           </div>
           <button className="reset-btn" onClick={() => { clearState(); setUrl(''); setSelectedQuality(null); }}>
             Download Another Video
