@@ -134,7 +134,7 @@ async function downloadMusic(url) {
  * @param {string} outputAssPath - Path to output ASS subtitle file
  * @returns {Promise<string|null>} - Path to ASS file or null on failure
  */
-async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outputAssPath) {
+async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outputAssPath, subtitleStyle) {
   try {
     // Extract audio from clip for transcription (using -ss and -t to extract only the segment)
     const tempAudioPath = clipVideoPath.replace('.mp4', '-audio.wav');
@@ -171,12 +171,26 @@ async function generateSubtitlesForClip(clipVideoPath, startTime, endTime, outpu
     const tempWordsPath = clipVideoPath.replace('.mp4', '-words.json');
     fs.writeFileSync(tempWordsPath, JSON.stringify(wordsForSubtitle, null, 2));
 
-    // Generate ASS subtitles using subtitle-renderer.py (Hormozi-style)
-    console.log('Generating Hormozi-style subtitles...');
+    // Build CLI args for subtitle renderer with style parameters
     const subtitleRendererPath = require('path').join(__dirname, '../ai/subtitle-renderer.py');
+    const pythonArgs = ['-u', subtitleRendererPath, tempWordsPath, outputAssPath];
 
+    if (subtitleStyle) {
+      if (subtitleStyle.fontSize) pythonArgs.push('--font-size', String(subtitleStyle.fontSize));
+      if (subtitleStyle.textColor) pythonArgs.push('--font-color', subtitleStyle.textColor);
+      if (subtitleStyle.keywordHighlight !== undefined) {
+        pythonArgs.push(subtitleStyle.keywordHighlight ? '--keyword-highlight' : '--no-keyword-highlight');
+      }
+      if (subtitleStyle.emojiOverlay) {
+        pythonArgs.push('--emoji-overlay');
+      }
+      if (subtitleStyle.position) pythonArgs.push('--position', subtitleStyle.position);
+    }
+
+    // Generate ASS subtitles using subtitle-renderer.py (Hormozi-style)
+    console.log('Generating Hormozi-style subtitles...', pythonArgs.slice(2).join(' '));
     await new Promise((resolve, reject) => {
-      execFile('python3', ['-u', subtitleRendererPath, tempWordsPath, outputAssPath], (err, stdout, stderr) => {
+      execFile('python3', pythonArgs, (err, stdout, stderr) => {
         if (err) {
           console.error('Subtitle renderer error:', err);
           reject(err);
@@ -777,6 +791,7 @@ router.post('/video/export-clips', async (req, res) => {
     segments: rawSegments,
     format = 'original',
     addSubtitles = false,
+    subtitleStyle = null,
     addEndFrame = false,
     // Branding options
     watermarkUrl = '',
@@ -949,7 +964,7 @@ router.post('/video/export-clips', async (req, res) => {
       if (addSubtitles) {
         assPath = path.join(exportDir, `${safeName}-${timestamp}.ass`);
         console.log(`Generating subtitles for clip ${i + 1}/${segments.length}...`);
-        await generateSubtitlesForClip(actualVideoPath, segment.start, segment.end, assPath);
+        await generateSubtitlesForClip(actualVideoPath, segment.start, segment.end, assPath, subtitleStyle);
       }
 
       // Reuse the base crop filter for all segments (already analyzed the full video)
