@@ -62,3 +62,4 @@ data/clip-analytics/
 server/ai/models/*.bin
 server/ai/__pycache__/
 server/__pycache__/
+downloads/
